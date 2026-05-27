@@ -18,6 +18,23 @@ export async function getDb() {
   return _db;
 }
 
+export async function checkDbConnection(): Promise<boolean> {
+  if (!process.env.DATABASE_URL) {
+    console.error("[Database] DATABASE_URL 未配置，所有数据操作将不可用");
+    return false;
+  }
+  try {
+    const db = await getDb();
+    if (!db) return false;
+    await db.execute("SELECT 1");
+    console.log("[Database] 数据库连接成功");
+    return true;
+  } catch (error) {
+    console.error("[Database] 数据库连接失败:", error);
+    return false;
+  }
+}
+
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) {
     throw new Error("User openId is required for upsert");

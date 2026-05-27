@@ -1,0 +1,203 @@
+@import "tailwindcss";
+
+/* ===== Custom Properties ===== */
+:root {
+  --color-primary: #f9a8d4;
+  --color-primary-light: #fbcfe8;
+  --color-primary-dark: #f472b6;
+  --color-secondary: #ec4899;
+  --color-secondary-light: #f472b6;
+  --color-background: #fff5f7;
+  --color-card: #ffffff;
+  --color-muted: #f1f5f9;
+  --color-border: #e2e8f0;
+  --color-text: #0f172a;
+  --color-text-secondary: #64748b;
+}
+
+/* ===== Base ===== */
+body {
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
+  background-color: var(--color-background);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ===== Gradient Text ===== */
+.gradient-text {
+  background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ===== Card Styles ===== */
+.card-elegant {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.02);
+  transition: box-shadow 0.3s ease, transform 0.3s ease;
+}
+
+.card-elegant:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.04);
+}
+
+/* ===== Button Styles ===== */
+.btn-elegant-primary {
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 24px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(249, 168, 212, 0.3);
+}
+
+.btn-elegant-primary:hover {
+  box-shadow: 0 4px 16px rgba(249, 168, 212, 0.4);
+  transform: translateY(-1px);
+}
+
+.btn-elegant-secondary {
+  background: linear-gradient(135deg, var(--color-secondary), #db2777);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 24px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(236, 72, 153, 0.3);
+}
+
+.btn-elegant-secondary:hover {
+  box-shadow: 0 4px 16px rgba(236, 72, 153, 0.4);
+  transform: translateY(-1px);
+}
+
+/* ===== Container ===== */
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* ===== Element Plus Overrides ===== */
+.el-button--primary {
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark)) !important;
+  border: none !important;
+  box-shadow: 0 2px 8px rgba(249, 168, 212, 0.3);
+}
+
+.el-button--primary:hover {
+  box-shadow: 0 4px 16px rgba(249, 168, 212, 0.4) !important;
+}
+
+.el-dialog {
+  border-radius: 16px !important;
+}
+
+.el-card {
+  border-radius: 12px !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+.el-input__wrapper {
+  border-radius: 8px !important;
+}
+
+.el-select__wrapper {
+  border-radius: 8px !important;
+}
+
+.el-tag {
+  border-radius: 6px !important;
+}
+
+.el-table {
+  border-radius: 12px !important;
+}
+
+/* ===== Animations ===== */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.6s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.5s ease-out;
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.4s ease-out;
+}
+
+/* ===== Page Transitions ===== */
+.page-enter-active {
+  transition: all 0.3s ease-out;
+}
+
+.page-leave-active {
+  transition: all 0.2s ease-in;
+}
+
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+/* ===== Scrollbar ===== */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-secondary);
+}
