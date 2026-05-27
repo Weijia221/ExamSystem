@@ -170,6 +170,14 @@
                     >
                       发布
                     </el-button>
+                    <el-button
+                      size="small"
+                      type="danger"
+                      text
+                      @click="deleteExam(exam.id)"
+                    >
+                      删除
+                    </el-button>
                   </div>
                 </div>
               </div>
@@ -204,7 +212,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { Loading, Document, Notebook, DataAnalysis } from "@element-plus/icons-vue";
 import { useAuthStore } from "../stores/auth";
 import { questionsApi, examsApi } from "../api";
@@ -271,6 +279,21 @@ const publishExam = async (id: number) => {
     await loadData();
   } catch {
     ElMessage.error("发布失败");
+  }
+};
+
+const deleteExam = async (id: number) => {
+  try {
+    await ElMessageBox.confirm(
+      "删除试卷将同时删除所有学生的考试成绩，此操作不可恢复。确定要删除吗？",
+      "确认删除",
+      { confirmButtonText: "删除", cancelButtonText: "取消", type: "warning" }
+    );
+    await examsApi.delete(id);
+    ElMessage.success("试卷已删除");
+    await loadData();
+  } catch {
+    // cancelled
   }
 };
 

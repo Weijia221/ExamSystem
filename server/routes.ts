@@ -210,7 +210,7 @@ export function createApiRouter(): Router {
       const db = await getDb();
       if (!db) return res.status(500).json({ error: "数据库不可用" });
 
-      const { title, description, totalPoints, duration, startTime, endTime, passingScore, questionIds } = req.body;
+      const { title, description, totalPoints, duration, startTime, endTime, passingScore, questionIds, questionPoints } = req.body;
 
       if (!title || !totalPoints || !duration || !questionIds?.length) {
         return res.status(400).json({ error: "缺少必填字段" });
@@ -240,7 +240,7 @@ export function createApiRouter(): Router {
         console.log("[DEBUG] fallback examId =", fallbackId);
         if (fallbackId > 0) {
           for (let i = 0; i < questionIds.length; i++) {
-            await db.insert(examQuestions).values({ examId: fallbackId, questionId: questionIds[i], order: i + 1, points: "1" });
+            await db.insert(examQuestions).values({ examId: fallbackId, questionId: questionIds[i], order: i + 1, points: (questionPoints?.[i] ?? 1).toString() });
           }
         }
         return res.json({ success: true, id: fallbackId });
@@ -251,7 +251,7 @@ export function createApiRouter(): Router {
           examId,
           questionId: questionIds[i],
           order: i + 1,
-          points: "1",
+          points: (questionPoints?.[i] ?? 1).toString(),
         });
       }
 
@@ -277,6 +277,44 @@ export function createApiRouter(): Router {
     } catch (error) {
       console.error("[API] exams.publish failed:", error);
       res.status(500).json({ error: "发布试卷失败" });
+    }
+  });
+
+  router.delete("/exams/:id", requireAuth, async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(500).json({ error: "数据库不可用" });
+
+      const id = Number(req.params.id);
+
+      await db.transaction(async (tx) => {
+        // Get all exam records for this exam
+        const records = await tx
+          .select({ id: examRecords.id })
+          .from(examRecords)
+          .where(eq(examRecords.examId, id));
+
+        // Delete student answers for each record
+        for (const record of records) {
+          await tx.delete(studentAnswers).where(eq(studentAnswers.examRecordId, record.id));
+        }
+
+        // Delete exam records
+        await tx.delete(examRecords).where(eq(examRecords.examId, id));
+
+        // Delete exam questions
+        await tx.delete(examQuestions).where(eq(examQuestions.examId, id));
+
+        // Delete the exam itself
+        await tx
+          .delete(exams)
+          .where(and(eq(exams.id, id), eq(exams.createdBy, req.user!.id)));
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("[API] exams.delete failed:", error);
+      res.status(500).json({ error: "删除试卷失败" });
     }
   });
 
@@ -379,7 +417,19 @@ export function createApiRouter(): Router {
         endTime: new Date(),
         status: "submitted",
       });
-      const recordId = Number((recordResult as { insertId?: number }).insertId ?? 0);
+      let recordId = Number((recordResult as any).insertId ?? (recordResult as any)[0]?.insertId ?? 0);
+
+      // Fallback: if insertId is invalid, query the record we just created
+      if (!recordId || recordId === 0) {
+        const lastRecord = await db
+          .select({ id: examRecords.id })
+          .from(examRecords)
+          .where(and(eq(examRecords.examId, examId), eq(examRecords.studentId, req.user!.id)));
+        if (lastRecord.length > 0) {
+          recordId = Math.max(...lastRecord.map(r => r.id));
+        }
+      }
+      console.log("[DEBUG] recordId =", recordId);
 
       let totalScore = 0;
 
@@ -390,7 +440,6 @@ export function createApiRouter(): Router {
 
         const question = q[0];
         const studentAnswer = answers[examQ.questionId] ?? "";
-        console.log("[DEBUG] grade qId=", examQ.questionId, "type=", question.type, "studentAnswer=", JSON.stringify(studentAnswer), "correct=", JSON.stringify(question.correctAnswer));
         let isCorrect = false;
         let earnedPoints = 0;
 

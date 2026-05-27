@@ -41,7 +41,9 @@
                   <el-input-number v-model="examData.duration" :min="1" class="w-full" />
                 </el-form-item>
                 <el-form-item label="总分">
-                  <el-input-number v-model="examData.totalPoints" :min="1" class="w-full" />
+                  <el-input :model-value="totalCalculatedPoints" disabled class="w-full">
+                    <template #append>分</template>
+                  </el-input>
                 </el-form-item>
               </div>
 
@@ -49,7 +51,7 @@
                 <el-input-number
                   v-model="examData.passingScore"
                   :min="0"
-                  :max="examData.totalPoints"
+                  :max="totalCalculatedPoints"
                   class="w-full"
                 />
               </el-form-item>
@@ -73,7 +75,7 @@
               </div>
               <div class="flex justify-between text-sm">
                 <span style="color: var(--color-text-secondary)">总分</span>
-                <span class="font-medium">{{ examData.totalPoints }} 分</span>
+                <span class="font-medium">{{ totalCalculatedPoints }} 分</span>
               </div>
               <div class="flex justify-between text-sm">
                 <span style="color: var(--color-text-secondary)">及格分</span>
@@ -101,10 +103,6 @@
               <el-button @click="openQuestionBank">
                 <el-icon class="mr-1"><FolderOpened /></el-icon>
                 从题库选择
-              </el-button>
-              <el-button type="primary" plain @click="addSampleQuestion">
-                <el-icon class="mr-1"><Plus /></el-icon>
-                添加题目
               </el-button>
             </div>
           </div>
@@ -136,7 +134,6 @@
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2 mb-2 flex-wrap">
                     <el-tag size="small" effect="plain">{{ getTypeLabel(q.type) }}</el-tag>
-                    <span class="text-xs" style="color: var(--color-text-secondary)">{{ q.points }} 分</span>
                   </div>
                   <p class="text-sm font-medium line-clamp-2">{{ q.title }}</p>
                 </div>
@@ -169,8 +166,19 @@
               <div class="flex-1">
                 <p class="font-medium">{{ index + 1 }}. {{ question.title }}</p>
                 <p class="text-sm mt-1" style="color: var(--color-text-secondary)">
-                  {{ getTypeLabel(question.type) }} · {{ question.points }} 分
+                  {{ getTypeLabel(question.type) }}
                 </p>
+              </div>
+              <div class="flex items-center gap-2 ml-4 shrink-0">
+                <el-input-number
+                  :model-value="question.points"
+                  :min="0.5"
+                  :step="0.5"
+                  size="small"
+                  style="width: 110px"
+                  @update:model-value="(val: number) => updateQuestionPoints(question.id, val)"
+                />
+                <span class="text-xs" style="color: var(--color-text-secondary)">分</span>
               </div>
               <el-button size="small" type="danger" text @click="removeQuestion(question.id)">
                 移除
@@ -184,10 +192,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import { ArrowLeft, FolderOpened, Plus, Loading, Document } from "@element-plus/icons-vue";
+import { ArrowLeft, FolderOpened, Loading, Document } from "@element-plus/icons-vue";
 import { questionsApi, examsApi } from "../api";
 import type { Question } from "../types";
 
@@ -209,7 +217,6 @@ const examData = ref({
   title: "",
   description: "",
   duration: 60,
-  totalPoints: 100,
   passingScore: 60,
 });
 
@@ -221,6 +228,15 @@ const selectedInBank = ref<number[]>([]);
 const publishing = ref(false);
 
 const newSelections = ref<number[]>([]);
+
+const totalCalculatedPoints = computed(() =>
+  selectedQuestions.value.reduce((sum, q) => sum + q.points, 0)
+);
+
+const updateQuestionPoints = (id: number, val: number) => {
+  const q = selectedQuestions.value.find((sq) => sq.id === id);
+  if (q) q.points = val;
+};
 
 const openQuestionBank = async () => {
   const existingIds = selectedQuestions.value.map((q) => q.id);
@@ -254,21 +270,12 @@ const confirmBankSelection = () => {
   const newQuestions = newSelections.value
     .map((id) => {
       const q = bankQuestions.value.find((bq) => bq.id === id);
-      return q ? { id: q.id, title: q.title, type: q.type, points: Number(q.points) } : null;
+      return q ? { id: q.id, title: q.title, type: q.type, points: 1 } : null;
     })
     .filter(Boolean) as SelectedQuestion[];
 
   selectedQuestions.value.push(...newQuestions);
   showQuestionBank.value = false;
-};
-
-const addSampleQuestion = () => {
-  selectedQuestions.value.push({
-    id: Date.now(),
-    title: `示例题目 ${selectedQuestions.value.length + 1}`,
-    type: "single",
-    points: 5,
-  });
 };
 
 const removeQuestion = (id: number) => {
@@ -287,23 +294,17 @@ const handlePublish = async () => {
 
   publishing.value = true;
   try {
-    // Filter out local-only IDs (from addSampleQuestion)
-    const questionIds = selectedQuestions.value
-      .filter((q) => q.id < 1_000_000_000)
-      .map((q) => q.id);
-
-    if (questionIds.length === 0) {
-      ElMessage.warning("请从题库中选择题目");
-      return;
-    }
+    const questionIds = selectedQuestions.value.map((q) => q.id);
+    const questionPoints = selectedQuestions.value.map((q) => q.points);
 
     const result = await examsApi.create({
       title: examData.value.title,
       description: examData.value.description || undefined,
-      totalPoints: examData.value.totalPoints,
+      totalPoints: totalCalculatedPoints.value,
       duration: examData.value.duration,
       passingScore: examData.value.passingScore,
       questionIds,
+      questionPoints,
     });
 
     // Auto-publish

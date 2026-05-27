@@ -131,9 +131,6 @@
                 <el-option value="hard" label="困难" />
               </el-select>
             </el-form-item>
-            <el-form-item label="分值">
-              <el-input-number v-model="formData.points" :min="0.5" :step="0.5" class="w-full" />
-            </el-form-item>
           </div>
 
           <el-form-item label="分类">
@@ -181,7 +178,6 @@
                 >
                   {{ getDifficultyLabel(question.difficulty) }}
                 </el-tag>
-                <span class="text-xs" style="color: var(--color-text-secondary)">{{ question.points }} 分</span>
               </div>
               <p class="font-medium mb-2">{{ question.title }}</p>
               <div v-if="question.options && Object.keys(question.options).length > 0" class="text-sm space-y-1 mb-2">
@@ -215,7 +211,7 @@
 
       <!-- Stats -->
       <div v-if="questions.length > 0" class="mt-8 p-6 rounded-xl border" style="background: rgba(249,168,212,0.05); border-color: rgba(249,168,212,0.2)">
-        <div class="grid grid-cols-4 gap-4 text-center">
+        <div class="grid grid-cols-3 gap-4 text-center">
           <div>
             <p class="text-2xl font-bold" style="color: #f9a8d4">{{ questions.length }}</p>
             <p class="text-sm" style="color: var(--color-text-secondary)">总题数</p>
@@ -227,10 +223,6 @@
           <div>
             <p class="text-2xl font-bold" style="color: #f9a8d4">{{ questions.filter(q => q.difficulty === 'medium').length }}</p>
             <p class="text-sm" style="color: var(--color-text-secondary)">中等题</p>
-          </div>
-          <div>
-            <p class="text-2xl font-bold" style="color: #f9a8d4">{{ totalPoints }}</p>
-            <p class="text-sm" style="color: var(--color-text-secondary)">总分</p>
           </div>
         </div>
       </div>
@@ -274,7 +266,6 @@ interface FormData {
   title: string;
   difficulty: Difficulty;
   category: string;
-  points: number;
   options: OptionItem[];
   correctAnswer: string;
   explanation: string;
@@ -292,7 +283,6 @@ const getEmptyForm = (type: QuestionType = "single"): FormData => ({
   title: "",
   difficulty: "medium",
   category: "",
-  points: 1,
   options: type === "trueFalse"
     ? [
         { key: "A", text: "正确" },
@@ -319,10 +309,6 @@ const multipleAnswers = computed({
 
 const needsOptions = computed(() =>
   formData.value.type === "single" || formData.value.type === "multiple" || formData.value.type === "trueFalse"
-);
-
-const totalPoints = computed(() =>
-  questions.value.reduce((sum, q) => sum + Number(q.points), 0)
 );
 
 const typeLabels: Record<string, string> = {
@@ -357,7 +343,6 @@ const handleTypeChange = (type: QuestionType) => {
     title: formData.value.title,
     difficulty: formData.value.difficulty,
     category: formData.value.category,
-    points: formData.value.points,
     explanation: formData.value.explanation,
   };
 };
@@ -424,7 +409,7 @@ const handleSave = async () => {
       explanation: f.explanation || undefined,
       difficulty: f.difficulty,
       category: f.category || undefined,
-      points: f.points,
+      points: 1,
     };
 
     if (authStore.isAuthenticated) {
@@ -490,7 +475,6 @@ const handleEdit = (question: Question) => {
     title: question.title,
     difficulty: question.difficulty,
     category: question.category ?? "",
-    points: Number(question.points),
     options: options.length > 0 ? options : getEmptyForm(question.type).options,
     correctAnswer: question.type === "fillBlank" ? "" : question.correctAnswer,
     fillBlankAnswer: question.type === "fillBlank" ? question.correctAnswer : "",
@@ -507,22 +491,21 @@ const handleDelete = async (id: number) => {
       type: "warning",
     });
 
-    if (authStore.isAuthenticated) {
-      try {
-        await questionsApi.delete(id);
-        ElMessage.success("题目已删除");
-        await loadQuestions();
-        return;
-      } catch (err: any) {
-        console.error("[QuestionBank] API delete failed:", err?.response?.status, err?.response?.data || err?.message);
-        ElMessage.error("删除失败: " + (err?.response?.data?.error || err?.message || "未知错误"));
-        return;
-      }
+    // Always try server delete first
+    try {
+      await questionsApi.delete(id);
+      ElMessage.success("题目已删除");
+    } catch (err: any) {
+      console.error("[QuestionBank] API delete failed:", err?.response?.status, err?.response?.data || err?.message);
+      ElMessage.error("删除失败: " + (err?.response?.data?.error || err?.message || "未知错误"));
+      return;
     }
 
+    // Sync: remove from local state and localStorage
     questions.value = questions.value.filter((q) => q.id !== id);
     saveToStorage(questions.value);
-    ElMessage.success("题目已删除");
+    // Re-fetch from server to ensure consistency
+    await loadQuestions();
   } catch {
     // cancelled
   }

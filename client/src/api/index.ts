@@ -60,9 +60,12 @@ export const examsApi = {
     endTime?: string;
     passingScore?: number;
     questionIds: number[];
+    questionPoints?: number[];
   }) => api.post<{ success: boolean; id: number }>("/exams", data).then((r) => r.data),
   publish: (id: number) =>
     api.post<{ success: boolean }>(`/exams/${id}/publish`).then((r) => r.data),
+  delete: (id: number) =>
+    api.delete<{ success: boolean }>(`/exams/${id}`).then((r) => r.data),
 };
 
 // Student exams
