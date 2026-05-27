@@ -358,6 +358,7 @@ export function createApiRouter(): Router {
         answers: Record<number, string>; // questionId -> studentAnswer
         startTime: string;
       };
+      console.log("[DEBUG] submit examId =", examId, "answers =", JSON.stringify(answers));
 
       // Get exam
       const exam = await db.select().from(exams).where(eq(exams.id, examId));
@@ -368,6 +369,7 @@ export function createApiRouter(): Router {
         .select()
         .from(examQuestions)
         .where(eq(examQuestions.examId, examId));
+      console.log("[DEBUG] submit examQs count =", examQs.length);
 
       // Create exam record
       const recordResult = await db.insert(examRecords).values({
@@ -388,6 +390,7 @@ export function createApiRouter(): Router {
 
         const question = q[0];
         const studentAnswer = answers[examQ.questionId] ?? "";
+        console.log("[DEBUG] grade qId=", examQ.questionId, "type=", question.type, "studentAnswer=", JSON.stringify(studentAnswer), "correct=", JSON.stringify(question.correctAnswer));
         let isCorrect = false;
         let earnedPoints = 0;
 

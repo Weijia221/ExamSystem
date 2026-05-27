@@ -168,15 +168,18 @@
                     @update:model-value="setAnswer(questions[currentQuestion].id, $event)"
                   >
                     <div
-                      v-for="value in ['正确', '错误']"
-                      :key="value"
+                      v-for="(text, key) in (questions[currentQuestion].options || {})"
+                      :key="key"
                       class="flex items-center p-4 rounded-xl border-2 cursor-pointer transition-all mb-3"
                       :style="{
-                        borderColor: answers[questions[currentQuestion].id] === value ? '#f9a8d4' : 'var(--color-border)',
-                        background: answers[questions[currentQuestion].id] === value ? 'rgba(249,168,212,0.05)' : 'transparent',
+                        borderColor: answers[questions[currentQuestion].id] === key ? '#f9a8d4' : 'var(--color-border)',
+                        background: answers[questions[currentQuestion].id] === key ? 'rgba(249,168,212,0.05)' : 'transparent',
                       }"
                     >
-                      <el-radio :value="value">{{ value }}</el-radio>
+                      <el-radio :value="key">
+                        <span class="font-medium">{{ key }}.</span>
+                        <span class="ml-2">{{ text }}</span>
+                      </el-radio>
                     </div>
                   </el-radio-group>
                 </div>
@@ -369,7 +372,7 @@ const startDemoExam = () => {
     },
     {
       id: 3, type: "trueFalse", title: "在线考试系统可以帮助教师节省时间。",
-      options: null, correctAnswer: "正确", explanation: null, difficulty: "easy", category: null, points: "5",
+      options: { A: "正确", B: "错误" }, correctAnswer: "A", explanation: null, difficulty: "easy", category: null, points: "5",
       createdBy: 0, createdAt: "", updatedAt: "", order: 3, examPoints: "5",
     },
   ];

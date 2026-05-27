@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm *)",
+      "Bash(npm *)",
+      "Bash(node *)",
+      "Bash(git *)",
+      "Bash(cd *)",
+      "Bash(mkdir *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(curl *)",
+      "Bash(mysql *)",
+      "Bash(netstat *)",
+      "Bash(taskkill *)",
+      "Bash(sleep *)",
+      "Bash(rm *)"
+    ],
+    "deny": []
+  }
+}
