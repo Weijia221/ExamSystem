@@ -1,6 +1,5 @@
 <template>
   <div class="min-h-screen" style="background: var(--color-background)">
-    <!-- Header -->
     <header
       class="border-b sticky top-0 z-50 backdrop-blur-sm"
       style="border-color: var(--color-border); background: rgba(255,255,255,0.8)"
@@ -17,76 +16,80 @@
     </header>
 
     <div class="container py-8">
-      <!-- Statistics -->
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-        <div v-for="stat in statistics" :key="stat.label" class="card-elegant">
-          <p class="text-sm mb-1" style="color: var(--color-text-secondary)">{{ stat.label }}</p>
-          <p class="text-3xl font-bold">{{ stat.value }}</p>
+      <!-- Exam List -->
+      <template v-if="!selectedExam">
+        <div class="mb-6">
+          <h2 class="text-2xl font-bold">成绩管理</h2>
+          <p class="mt-1" style="color: var(--color-text-secondary)">选择考试查看学生成绩</p>
         </div>
-      </div>
 
-      <!-- Filters -->
-      <div class="card-elegant mb-8">
-        <h3 class="font-bold mb-4">筛选条件</h3>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label class="text-sm font-medium mb-2 block">选择考试</label>
-            <el-select v-model="selectedExam" clearable placeholder="全部考试" class="w-full">
-              <el-option
-                v-for="exam in examNames"
-                :key="exam"
-                :label="exam"
-                :value="exam"
-              />
-            </el-select>
-          </div>
+        <div v-if="loading" class="card-elegant text-center py-12">
+          <el-icon class="is-loading" :size="32" style="color: #f9a8d4"><Loading /></el-icon>
         </div>
-      </div>
 
-      <!-- Loading -->
-      <div v-if="loading" class="card-elegant text-center py-12">
-        <el-icon class="is-loading" :size="32" style="color: #f9a8d4"><Loading /></el-icon>
-        <p class="mt-4" style="color: var(--color-text-secondary)">正在加载成绩数据...</p>
-      </div>
+        <div v-else-if="examList.length === 0" class="card-elegant text-center py-12">
+          <el-icon :size="48" style="color: var(--color-border)"><DataAnalysis /></el-icon>
+          <p class="mt-4" style="color: var(--color-text-secondary)">暂无考试记录</p>
+        </div>
 
-      <!-- Empty -->
-      <div v-else-if="scores.length === 0" class="card-elegant text-center py-12">
-        <el-icon :size="48" style="color: var(--color-border)"><DataAnalysis /></el-icon>
-        <p class="mt-4" style="color: var(--color-text-secondary)">暂无成绩数据</p>
-      </div>
+        <div v-else class="card-elegant overflow-hidden" style="padding: 0">
+          <el-table :data="examList" style="width: 100%">
+            <el-table-column label="考试名称" prop="examTitle" min-width="200" show-overflow-tooltip />
+            <el-table-column label="参考人数" width="100">
+              <template #default="{ row }">{{ row.count }} 人</template>
+            </el-table-column>
+            <el-table-column label="操作" width="100">
+              <template #default="{ row }">
+                <el-button size="small" type="primary" text @click="selectedExam = row.examTitle">查看</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </template>
 
-      <!-- Scores Table -->
-      <div v-else class="card-elegant overflow-hidden" style="padding: 0">
-        <el-table :data="filteredScores" style="width: 100%">
-          <el-table-column label="考试名称" prop="examTitle" />
-          <el-table-column label="成绩" width="150">
-            <template #default="{ row }">
-              <span
-                class="font-bold"
-                :style="{
-                  color: row.score >= 80 ? '#22c55e' : row.score >= 60 ? '#f59e0b' : '#ef4444',
-                }"
-              >
-                {{ row.score }}/{{ row.totalPoints }}
-              </span>
-            </template>
-          </el-table-column>
-          <el-table-column label="提交时间" prop="submittedAt" width="200" />
-          <el-table-column label="操作" width="120">
-            <template #default="{ row }">
-              <el-button size="small" type="primary" text @click="viewDetail(row.id)">查看详情</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </div>
+      <!-- Student Records for Selected Exam -->
+      <template v-else>
+        <div class="mb-6">
+          <el-button text class="mb-2" @click="selectedExam = ''">
+            <el-icon class="mr-1"><ArrowLeft /></el-icon>返回
+          </el-button>
+          <h2 class="text-2xl font-bold">{{ selectedExam }}</h2>
+          <p class="mt-1" style="color: var(--color-text-secondary)">共 {{ selectedExamScores.length }} 条成绩记录</p>
+        </div>
 
-      <!-- Export -->
-      <div class="mt-6 flex justify-end">
-        <el-button type="primary">
-          <el-icon class="mr-1"><Download /></el-icon>
-          导出成绩
-        </el-button>
-      </div>
+        <div class="card-elegant overflow-hidden" style="padding: 0">
+          <el-table :data="selectedExamScores" style="width: 100%">
+            <el-table-column label="学生" prop="studentName" width="120" show-overflow-tooltip />
+            <el-table-column label="得分" width="140">
+              <template #default="{ row }">
+                <span :style="{ color: row.score >= (row.totalPoints * 0.6) ? '#10b981' : '#ef4444', fontWeight: 600 }">
+                  {{ row.score }}
+                </span>
+                <span style="color: var(--color-text-secondary)"> / {{ row.totalPoints }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" width="100">
+              <template #default="{ row }">
+                <el-tag
+                  :type="row.status === 'graded' ? 'success' : 'warning'"
+                  effect="plain"
+                  size="small"
+                >
+                  {{ row.status === "graded" ? "已批改" : "已提交" }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="提交时间" min-width="150">
+              <template #default="{ row }">{{ row.submittedAt }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="80">
+              <template #default="{ row }">
+                <el-button size="small" type="primary" text @click="viewDetail(row.id)">详情</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </template>
 
       <!-- Detail Dialog -->
       <el-dialog
@@ -142,7 +145,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
-import { ArrowLeft, Loading, DataAnalysis, Download } from "@element-plus/icons-vue";
+import { ArrowLeft, Loading, DataAnalysis } from "@element-plus/icons-vue";
 import { scoresApi, type ScoreDetail } from "../api";
 import type { TeacherScore } from "../types";
 
@@ -157,30 +160,18 @@ const showDetail = computed({
   set: (val) => { if (!val) detailData.value = null; },
 });
 
-const examNames = computed(() => [...new Set(scores.value.map((s) => s.examTitle))]);
-
-const filteredScores = computed(() =>
-  scores.value.filter((s) => {
-    if (selectedExam.value && s.examTitle !== selectedExam.value) return false;
-    return true;
-  })
-);
-
-const statistics = computed(() => {
-  const data = filteredScores.value;
-  return [
-    { label: "考试总数", value: examNames.value.length },
-    { label: "记录数", value: data.length },
-    {
-      label: "平均分",
-      value: data.length > 0 ? Math.round(data.reduce((s, r) => s + r.score, 0) / data.length) : 0,
-    },
-    {
-      label: "及格率",
-      value: data.length > 0 ? Math.round((data.filter((r) => r.score >= 60).length / data.length) * 100) + "%" : "0%",
-    },
-  ];
+const examList = computed(() => {
+  const map = new Map<string, Set<number>>();
+  for (const s of scores.value) {
+    if (!map.has(s.examTitle)) map.set(s.examTitle, new Set());
+    map.get(s.examTitle)!.add(s.studentId);
+  }
+  return Array.from(map.entries()).map(([examTitle, students]) => ({ examTitle, count: students.size }));
 });
+
+const selectedExamScores = computed(() =>
+  scores.value.filter((s) => s.examTitle === selectedExam.value)
+);
 
 const typeLabels: Record<string, string> = {
   single: "单选题", multiple: "多选题", trueFalse: "判断题", fillBlank: "填空题",

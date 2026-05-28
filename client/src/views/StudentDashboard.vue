@@ -518,8 +518,12 @@ const loadData = async () => {
   loading.value = true;
   try {
     availableExams.value = await studentExamsApi.listAvailable();
-  } catch {
+  } catch (err: any) {
     availableExams.value = [];
+    if (err?.response?.status === 401) {
+      ElMessage.error("登录已过期，请重新登录");
+      router.push("/role-select");
+    }
   } finally {
     loading.value = false;
   }

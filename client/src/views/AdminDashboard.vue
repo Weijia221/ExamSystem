@@ -205,34 +205,29 @@
 
             <div v-else class="card-elegant overflow-hidden" style="padding: 0">
               <el-table :data="exams" style="width: 100%">
-                <el-table-column label="ID" prop="id" width="70" />
-                <el-table-column label="试卷名称" prop="title" min-width="200" show-overflow-tooltip />
-                <el-table-column label="总分" width="90">
+                <el-table-column label="试卷名称" prop="title" min-width="120" show-overflow-tooltip />
+                <el-table-column label="分数" width="120">
                   <template #default="{ row }">
-                    {{ Number(row.totalPoints) }} 分
+                    {{ Number(row.totalPoints) }} 分 / {{ row.passingScore ? Number(row.passingScore) + " 及格" : "-" }}
                   </template>
                 </el-table-column>
-                <el-table-column label="时长" width="90">
+                <el-table-column label="时长" width="80">
                   <template #default="{ row }">
                     {{ row.duration }} 分钟
                   </template>
                 </el-table-column>
-                <el-table-column label="及格分" width="90">
-                  <template #default="{ row }">
-                    {{ row.passingScore ? Number(row.passingScore) + " 分" : "-" }}
-                  </template>
-                </el-table-column>
-                <el-table-column label="状态" width="100">
+                <el-table-column label="状态" width="80">
                   <template #default="{ row }">
                     <el-tag
                       :type="row.status === 'published' ? 'success' : row.status === 'closed' ? 'info' : 'warning'"
                       effect="plain"
+                      size="small"
                     >
                       {{ row.status === "published" ? "已发布" : row.status === "closed" ? "已关闭" : "草稿" }}
                     </el-tag>
                   </template>
                 </el-table-column>
-                <el-table-column label="创建时间" width="180">
+                <el-table-column label="发布时间" width="150">
                   <template #default="{ row }">
                     {{ row.createdAt ? new Date(row.createdAt).toLocaleString("zh-CN") : "-" }}
                   </template>
@@ -446,7 +441,7 @@ const examList = computed(() => {
     if (!map.has(s.examTitle)) map.set(s.examTitle, new Set());
     map.get(s.examTitle)!.add(s.studentName);
   }
-  return [...map.entries()].map(([examTitle, students]) => ({ examTitle, count: students.size }));
+  return Array.from(map.entries()).map(([examTitle, students]) => ({ examTitle, count: students.size }));
 });
 
 const selectedExamScores = computed(() =>
@@ -482,11 +477,11 @@ const saveScore = async () => {
   if (!detailData.value) return;
   savingScore.value = true;
   try {
-    const scores = Object.entries(editedScores.value).map(([questionId, earnedPoints]) => ({
+    const scoreUpdates = Object.entries(editedScores.value).map(([questionId, earnedPoints]) => ({
       questionId: Number(questionId),
       earnedPoints,
     }));
-    await adminApi.updateScore(detailData.value.recordId, scores);
+    await adminApi.updateScore(detailData.value.recordId, scoreUpdates);
     ElMessage.success("成绩已修改");
     editingScore.value = false;
     // Reload detail

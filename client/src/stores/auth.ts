@@ -33,7 +33,7 @@ export const useAuthStore = defineStore("auth", () => {
     try {
       await authApi.logout();
     } finally {
-      localStorage.removeItem("loginRole");
+      localStorage.setItem("loginRole", "");
       user.value = null;
     }
   }

@@ -18,23 +18,27 @@ import { eq, and, count, or, isNull } from "drizzle-orm";
 // Dev user auto-login when OAuth is not configured
 async function getDevUser(role?: string): Promise<User | null> {
   const db = await getDb();
-  if (!db) return null;
+  if (!db || !role) return null;
 
-  const openId = `local_${role ?? "teacher"}`;
+  // student2, student3 等统一归为 student 角色
+  const dbRole = role.startsWith("student") ? "student" : role;
+  const openId = `local_${role}`;
   let user = await getUserByOpenId(openId);
   if (!user) {
     const names: Record<string, string> = { teacher: "教师", student: "学生1", admin: "管理员" };
+    const suffix = role.match(/^student(\d+)$/)?.[1];
+    const name = suffix ? `学生${suffix}` : (names[dbRole] ?? "用户");
     await upsertUser({
       openId,
-      name: names[role ?? "teacher"] ?? "用户",
+      name,
       email: `${openId}@local.com`,
       loginMethod: "local",
-      role: role ?? "teacher",
+      role: dbRole,
       lastSignedIn: new Date(),
     });
     user = await getUserByOpenId(openId);
-  } else if (role && user.role !== role) {
-    await upsertUser({ ...user, role, lastSignedIn: new Date() });
+  } else if (user.role !== dbRole) {
+    await upsertUser({ ...user, role: dbRole, lastSignedIn: new Date() });
     user = await getUserByOpenId(openId);
   }
 
@@ -870,10 +874,19 @@ export function createApiRouter(): Router {
         }
       }
 
-      // 删除旧的重复账号 & 修复旧用户名
+      // 删除旧的重复账号 & 迁移旧数据 & 修复旧用户名
       const db = await getDb();
       if (db) {
         const allUsers = await db.select().from(users);
+        const oldUser = allUsers.find(u => u.openId === "dev_local_user");
+        const newTeacher = allUsers.find(u => u.openId === "local_teacher");
+
+        // 将旧用户创建的题目和试卷迁移到新教师账号
+        if (oldUser && newTeacher && oldUser.id !== newTeacher.id) {
+          await db.update(questions).set({ createdBy: newTeacher.id }).where(eq(questions.createdBy, oldUser.id));
+          await db.update(exams).set({ createdBy: newTeacher.id, status: "published" }).where(eq(exams.createdBy, oldUser.id));
+        }
+
         for (const u of allUsers) {
           // 删除旧的共享 openId 和旧格式学生账号
           if (u.openId === "dev_local_user" || u.openId.startsWith("student_")) {
