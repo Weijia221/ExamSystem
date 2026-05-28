@@ -98,7 +98,6 @@
               <div class="card-elegant">
                 <div class="flex items-center justify-between mb-4">
                   <h3 class="text-lg font-semibold">最近题目</h3>
-                  <p class="text-sm" style="color: var(--color-text-secondary)">总分 {{ totalPoints }} 分</p>
                 </div>
                 <div class="space-y-3">
                   <div
@@ -112,7 +111,7 @@
                         <span class="text-sm font-semibold" style="color: #f9a8d4">{{ index + 1 }}</span>
                         <el-tag size="small" effect="plain">{{ getTypeLabel(question.type) }}</el-tag>
                         <span class="text-xs" style="color: var(--color-text-secondary)">
-                          {{ getDifficultyLabel(question.difficulty) }} · {{ question.points }} 分
+                          {{ getDifficultyLabel(question.difficulty) }}
                         </span>
                       </div>
                       <p class="text-sm font-medium truncate">{{ question.title }}</p>
@@ -231,10 +230,6 @@ const menuItems = [
   { id: "exams" as const, label: "试卷发布", description: "组卷和发布考试" },
   { id: "scores" as const, label: "查看分数", description: "查看学生成绩" },
 ];
-
-const totalPoints = computed(() =>
-  questions.value.reduce((sum, q) => sum + Number(q.points), 0)
-);
 
 const stats = computed(() => [
   { value: questions.value.length, label: "总题数" },

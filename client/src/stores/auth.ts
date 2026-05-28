@@ -8,6 +8,7 @@ export const useAuthStore = defineStore("auth", () => {
   const loading = ref(false);
 
   const isAuthenticated = computed(() => !!user.value);
+  const isAdmin = computed(() => user.value?.role === "admin");
   const isTeacher = computed(() => user.value?.role === "teacher" || user.value?.role === "admin");
   const isStudent = computed(() => user.value?.role === "student");
 
@@ -22,10 +23,17 @@ export const useAuthStore = defineStore("auth", () => {
     }
   }
 
+  async function login(username: string, password: string) {
+    const result = await authApi.login(username, password);
+    localStorage.setItem("loginRole", username);
+    user.value = result;
+  }
+
   async function logout() {
     try {
       await authApi.logout();
     } finally {
+      localStorage.removeItem("loginRole");
       user.value = null;
     }
   }
@@ -34,9 +42,11 @@ export const useAuthStore = defineStore("auth", () => {
     user,
     loading,
     isAuthenticated,
+    isAdmin,
     isTeacher,
     isStudent,
     fetchUser,
+    login,
     logout,
   };
 });

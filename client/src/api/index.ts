@@ -14,9 +14,20 @@ const api = axios.create({
   timeout: 30000,
 });
 
+// Attach login role header for dev auth
+api.interceptors.request.use((config) => {
+  const role = localStorage.getItem("loginRole");
+  if (role) {
+    config.headers["x-login-role"] = role;
+  }
+  return config;
+});
+
 // Auth
 export const authApi = {
   me: () => api.get<User | null>("/auth/me").then((r) => r.data),
+  login: (username: string, password: string) =>
+    api.post<User>("/auth/login", { username, password }).then((r) => r.data),
   logout: () => api.post("/auth/logout").then((r) => r.data),
 };
 
@@ -115,6 +126,45 @@ export const scoresApi = {
   teacher: () => api.get<TeacherScore[]>("/teacher/scores").then((r) => r.data),
   student: () => api.get<StudentScore[]>("/student/scores").then((r) => r.data),
   detail: (recordId: number) => api.get<ScoreDetail>(`/scores/${recordId}/detail`).then((r) => r.data),
+};
+
+// Admin
+export interface AdminStats {
+  users: number;
+  questions: number;
+  exams: number;
+  records: number;
+}
+
+export interface AdminUser {
+  id: number;
+  name: string | null;
+  email: string | null;
+  role: string;
+  createdAt: string;
+}
+
+export interface AdminScore {
+  id: number;
+  examTitle: string;
+  studentName: string;
+  score: number;
+  totalPoints: number;
+  submittedAt: string;
+  status: string | null;
+}
+
+export const adminApi = {
+  stats: () => api.get<AdminStats>("/admin/stats").then((r) => r.data),
+  users: () => api.get<AdminUser[]>("/admin/users").then((r) => r.data),
+  questions: () => api.get<Question[]>("/admin/questions").then((r) => r.data),
+  exams: () => api.get<Exam[]>("/admin/exams").then((r) => r.data),
+  scores: () => api.get<AdminScore[]>("/admin/scores").then((r) => r.data),
+  initAccounts: () => api.post<{ success: boolean }>("/admin/init-accounts").then((r) => r.data),
+  updateScore: (recordId: number, scores: { questionId: number; earnedPoints: number }[]) =>
+    api.put<{ success: boolean; score: number }>(`/admin/scores/${recordId}`, { scores }).then((r) => r.data),
+  deleteScore: (recordId: number) =>
+    api.delete<{ success: boolean }>(`/admin/scores/${recordId}`).then((r) => r.data),
 };
 
 export default api;

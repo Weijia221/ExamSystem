@@ -15,6 +15,13 @@
       "when": 1774846063536,
       "tag": "0001_square_wendell_rand",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1779989181698,
+      "tag": "0002_lethal_mephisto",
+      "breakpoints": true
     }
   ]
 }

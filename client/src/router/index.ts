@@ -23,6 +23,11 @@ const routes: RouteRecordRaw[] = [
     component: () => import("../views/StudentDashboard.vue"),
   },
   {
+    path: "/admin/dashboard",
+    name: "AdminDashboard",
+    component: () => import("../views/AdminDashboard.vue"),
+  },
+  {
     path: "/question-bank",
     name: "QuestionBank",
     component: () => import("../views/QuestionBank.vue"),

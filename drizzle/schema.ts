@@ -46,6 +46,7 @@ export const questions = mysqlTable("questions", {
   points: decimal("points", { precision: 5, scale: 2 }).default("1"), // Default points
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  deletedAt: timestamp("deletedAt"),
 });
 
 export type Question = typeof questions.$inferSelect;

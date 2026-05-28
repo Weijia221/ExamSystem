@@ -13,27 +13,37 @@ import {
   studentAnswers,
   type User,
 } from "../drizzle/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, count, or, isNull } from "drizzle-orm";
 
 // Dev user auto-login when OAuth is not configured
-const DEV_OPEN_ID = "dev_local_user";
-
-async function getDevUser(): Promise<User | null> {
+async function getDevUser(role?: string): Promise<User | null> {
   const db = await getDb();
   if (!db) return null;
 
-  let user = await getUserByOpenId(DEV_OPEN_ID);
+  const openId = `local_${role ?? "teacher"}`;
+  let user = await getUserByOpenId(openId);
   if (!user) {
+    const names: Record<string, string> = { teacher: "教师", student: "学生1", admin: "管理员" };
     await upsertUser({
-      openId: DEV_OPEN_ID,
-      name: "本地开发用户",
-      email: "dev@local.com",
+      openId,
+      name: names[role ?? "teacher"] ?? "用户",
+      email: `${openId}@local.com`,
       loginMethod: "local",
-      role: "teacher",
+      role: role ?? "teacher",
       lastSignedIn: new Date(),
     });
-    user = await getUserByOpenId(DEV_OPEN_ID);
+    user = await getUserByOpenId(openId);
+  } else if (role && user.role !== role) {
+    await upsertUser({ ...user, role, lastSignedIn: new Date() });
+    user = await getUserByOpenId(openId);
   }
+
+  // 修复旧用户名
+  if (user && user.role === "student" && (!user.name || user.name === "学生" || user.name === "本地开发用户" || user.name === "学生一" || user.name === "学生二" || user.name === "学生三")) {
+    await upsertUser({ ...user, name: "学生1", lastSignedIn: new Date() });
+    user = await getUserByOpenId(openId);
+  }
+
   return user ?? null;
 }
 
@@ -53,7 +63,8 @@ async function authMiddleware(req: Request, _res: Response, next: NextFunction) 
   } catch {
     // If OAuth is not configured, auto-login as dev user
     if (!ENV.oAuthServerUrl) {
-      req.user = await getDevUser();
+      const role = req.headers["x-login-role"] as string | undefined;
+      req.user = await getDevUser(role || undefined);
     } else {
       req.user = undefined;
     }
@@ -82,6 +93,41 @@ export function createApiRouter(): Router {
     res.json(req.user ?? null);
   });
 
+  router.post("/auth/login", async (req, res) => {
+    const accounts: Record<string, string> = {
+      teacher: "123456", student: "123456", admin: "123456",
+      student2: "123456", student3: "123456", student4: "123456", student5: "123456",
+    };
+    const { username, password } = req.body;
+    if (!username || !password || accounts[username] !== password) {
+      return res.status(401).json({ error: "账号或密码错误" });
+    }
+
+    const db = await getDb();
+    if (!db) return res.status(500).json({ error: "数据库不可用" });
+
+    // student2, student3, etc. → student role with unique openId
+    const isExtraStudent = /^student[2-9]\d*$/.test(username);
+    if (isExtraStudent) {
+      let user = await getUserByOpenId(`local_${username}`);
+      if (!user) {
+        await upsertUser({
+          openId: `local_${username}`,
+          name: `学生${username.replace("student", "")}`,
+          email: `local_${username}@local.com`,
+          loginMethod: "local",
+          role: "student",
+          lastSignedIn: new Date(),
+        });
+        user = await getUserByOpenId(`local_${username}`);
+      }
+      return res.json(user);
+    }
+
+    const user = await getDevUser(username);
+    res.json(user);
+  });
+
   router.post("/auth/logout", (_req, res) => {
     const cookieOptions = getSessionCookieOptions(_req);
     res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -94,10 +140,25 @@ export function createApiRouter(): Router {
     try {
       const db = await getDb();
       if (!db) return res.json([]);
+
+      if (req.user!.role === "admin") {
+        // 管理员看到所有未删除题目
+        const result = await db.select().from(questions).where(isNull(questions.deletedAt));
+        return res.json(result);
+      }
+
+      // 教师看到自己创建的 + 管理员创建的题目（未删除）
+      const admins = await db.select({ id: users.id }).from(users).where(eq(users.role, "admin"));
+      const adminIds = admins.map(a => a.id);
+      const visibleIds = [req.user!.id, ...adminIds];
+
       const result = await db
         .select()
         .from(questions)
-        .where(eq(questions.createdBy, req.user!.id));
+        .where(and(
+          isNull(questions.deletedAt),
+          or(...visibleIds.map(id => eq(questions.createdBy, id)))
+        ));
       res.json(result);
     } catch (error) {
       console.error("[API] questions.list failed:", error);
@@ -172,14 +233,11 @@ export function createApiRouter(): Router {
 
       const id = Number(req.params.id);
 
-      await db.transaction(async (tx) => {
-        // Remove associations from examQuestions first
-        await tx.delete(examQuestions).where(eq(examQuestions.questionId, id));
-        // Then delete the question itself
-        await tx
-          .delete(questions)
-          .where(and(eq(questions.id, id), eq(questions.createdBy, req.user!.id)));
-      });
+      // Soft delete: set deletedAt, keep data for existing exams and scores
+      const whereClause = req.user!.role === "admin"
+        ? eq(questions.id, id)
+        : and(eq(questions.id, id), eq(questions.createdBy, req.user!.id));
+      await db.update(questions).set({ deletedAt: new Date() }).where(whereClause);
 
       res.json({ success: true });
     } catch (error) {
@@ -194,10 +252,9 @@ export function createApiRouter(): Router {
     try {
       const db = await getDb();
       if (!db) return res.json([]);
-      const result = await db
-        .select()
-        .from(exams)
-        .where(eq(exams.createdBy, req.user!.id));
+      const result = req.user!.role === "admin"
+        ? await db.select().from(exams)
+        : await db.select().from(exams).where(eq(exams.createdBy, req.user!.id));
       res.json(result);
     } catch (error) {
       console.error("[API] exams.list failed:", error);
@@ -306,9 +363,10 @@ export function createApiRouter(): Router {
         await tx.delete(examQuestions).where(eq(examQuestions.examId, id));
 
         // Delete the exam itself
-        await tx
-          .delete(exams)
-          .where(and(eq(exams.id, id), eq(exams.createdBy, req.user!.id)));
+        const whereClause = req.user!.role === "admin"
+          ? eq(exams.id, id)
+          : and(eq(exams.id, id), eq(exams.createdBy, req.user!.id));
+        await tx.delete(exams).where(whereClause);
       });
 
       res.json({ success: true });
@@ -403,7 +461,8 @@ export function createApiRouter(): Router {
           category: questions.category,
           points: questions.points,
         })
-        .from(questions);
+        .from(questions)
+        .where(isNull(questions.deletedAt));
 
       // Shuffle questions
       for (let i = result.length - 1; i > 0; i--) {
@@ -480,19 +539,22 @@ export function createApiRouter(): Router {
           isCorrect = studentAnswer === question.correctAnswer;
         } else if (question.type === "multiple") {
           const correctSet = new Set(question.correctAnswer.split(",").filter(Boolean));
-          const answerSet = new Set(studentAnswer.split("").filter(Boolean));
-          isCorrect =
-            correctSet.size === answerSet.size &&
-            [...correctSet].every((a) => answerSet.has(a));
+          const answerSet = new Set(studentAnswer.split(",").filter(Boolean));
+          const hasWrong = [...answerSet].some((a) => !correctSet.has(a));
+          const correctSelected = [...answerSet].filter((a) => correctSet.has(a)).length;
+          isCorrect = correctSet.size === correctSelected && answerSet.size === correctSet.size;
+          if (!hasWrong && correctSelected > 0) {
+            earnedPoints = Math.round(Number(examQ.points) * (correctSelected / correctSet.size) * 10) / 10;
+          }
         } else if (question.type === "fillBlank") {
           const correctAnswers = question.correctAnswer.split("|").map((a) => a.trim().toLowerCase());
           isCorrect = correctAnswers.includes(studentAnswer.trim().toLowerCase());
         }
 
-        if (isCorrect) {
+        if (isCorrect && question.type !== "multiple") {
           earnedPoints = Number(examQ.points);
-          totalScore += earnedPoints;
         }
+        totalScore += earnedPoints;
 
         await db.insert(studentAnswers).values({
           examRecordId: recordId,
@@ -504,15 +566,16 @@ export function createApiRouter(): Router {
       }
 
       // Update exam record with score
+      const finalScore = Math.round(totalScore * 10) / 10;
       await db
         .update(examRecords)
-        .set({ score: totalScore.toString(), status: "graded" })
+        .set({ score: finalScore.toString(), status: "graded" })
         .where(eq(examRecords.id, recordId));
 
       res.json({
         success: true,
         recordId,
-        score: totalScore,
+        score: finalScore,
         totalPoints: Number(exam[0].totalPoints),
       });
     } catch (error) {
@@ -528,11 +591,10 @@ export function createApiRouter(): Router {
       const db = await getDb();
       if (!db) return res.json([]);
 
-      // Get all exams by this teacher
-      const teacherExams = await db
-        .select()
-        .from(exams)
-        .where(eq(exams.createdBy, req.user!.id));
+      // Admin sees all exams, teacher sees only their own
+      const teacherExams = req.user!.role === "admin"
+        ? await db.select().from(exams)
+        : await db.select().from(exams).where(eq(exams.createdBy, req.user!.id));
 
       const examIds = teacherExams.map((e) => e.id);
       if (examIds.length === 0) return res.json([]);
@@ -629,10 +691,11 @@ export function createApiRouter(): Router {
       const exam = await db.select().from(exams).where(eq(exams.id, r.examId));
       if (!exam.length) return res.status(404).json({ error: "考试不存在" });
 
-      // Permission check: student can view own record, teacher can view records of their exams
+      // Permission check: student can view own record, teacher can view records of their exams, admin can view all
       const isOwner = r.studentId === req.user!.id;
       const isExamOwner = exam[0].createdBy === req.user!.id;
-      if (!isOwner && !isExamOwner) {
+      const isAdmin = req.user!.role === "admin";
+      if (!isOwner && !isExamOwner && !isAdmin) {
         return res.status(403).json({ error: "无权查看此成绩" });
       }
 
@@ -680,6 +743,225 @@ export function createApiRouter(): Router {
     } catch (error) {
       console.error("[API] scores.detail failed:", error);
       res.status(500).json({ error: "获取成绩详情失败" });
+    }
+  });
+
+  // ==================== Admin ====================
+
+  function requireAdmin(req: Request, res: Response, next: NextFunction) {
+    if (!req.user) {
+      res.status(401).json({ error: "请先登录" });
+      return;
+    }
+    if (req.user.role !== "admin") {
+      res.status(403).json({ error: "需要管理员权限" });
+      return;
+    }
+    next();
+  }
+
+  router.get("/admin/stats", requireAdmin, async (_req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.json({ users: 0, questions: 0, exams: 0, records: 0 });
+
+      const [uc] = await db.select({ count: count() }).from(users);
+      const [qc] = await db.select({ count: count() }).from(questions).where(isNull(questions.deletedAt));
+      const [ec] = await db.select({ count: count() }).from(exams);
+      const [rc] = await db.select({ count: count() }).from(examRecords);
+
+      res.json({
+        users: Number(uc.count),
+        questions: Number(qc.count),
+        exams: Number(ec.count),
+        records: Number(rc.count),
+      });
+    } catch (error) {
+      console.error("[API] admin.stats failed:", error);
+      res.status(500).json({ error: "获取统计数据失败" });
+    }
+  });
+
+  router.get("/admin/users", requireAdmin, async (_req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.json([]);
+      const result = await db.select().from(users);
+      res.json(result);
+    } catch (error) {
+      console.error("[API] admin.users failed:", error);
+      res.status(500).json({ error: "获取用户列表失败" });
+    }
+  });
+
+  router.get("/admin/questions", requireAdmin, async (_req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.json([]);
+      const result = await db.select().from(questions).where(isNull(questions.deletedAt));
+      res.json(result);
+    } catch (error) {
+      console.error("[API] admin.questions failed:", error);
+      res.status(500).json({ error: "获取题目列表失败" });
+    }
+  });
+
+  router.get("/admin/exams", requireAdmin, async (_req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.json([]);
+      const result = await db.select().from(exams);
+      res.json(result);
+    } catch (error) {
+      console.error("[API] admin.exams failed:", error);
+      res.status(500).json({ error: "获取试卷列表失败" });
+    }
+  });
+
+  router.get("/admin/scores", requireAdmin, async (_req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.json([]);
+
+      const records = await db.select().from(examRecords);
+      const allExams = await db.select().from(exams);
+      const allUsers = await db.select().from(users);
+      const examMap = new Map(allExams.map((e) => [e.id, e]));
+      const userMap = new Map(allUsers.map((u) => [u.id, u]));
+
+      const result = records.map((r) => {
+        const exam = examMap.get(r.examId);
+        const student = userMap.get(r.studentId);
+        return {
+          id: r.id,
+          examTitle: exam?.title ?? "未知考试",
+          studentName: student?.name ?? `学生${r.studentId}`,
+          score: Number(r.score ?? 0),
+          totalPoints: Number(exam?.totalPoints ?? 0),
+          submittedAt: r.endTime ? new Date(r.endTime).toLocaleString("zh-CN") : "-",
+          status: r.status,
+        };
+      });
+
+      res.json(result);
+    } catch (error) {
+      console.error("[API] admin.scores failed:", error);
+      res.status(500).json({ error: "获取成绩列表失败" });
+    }
+  });
+
+  router.post("/admin/init-accounts", requireAdmin, async (_req, res) => {
+    try {
+      const accounts: Array<{ openId: string; name: string; email: string; role: "teacher" | "student" }> = [
+        { openId: "local_teacher", name: "教师", email: "local_teacher@local.com", role: "teacher" },
+        { openId: "local_student", name: "学生1", email: "local_student@local.com", role: "student" },
+        { openId: "local_student2", name: "学生2", email: "local_student2@local.com", role: "student" },
+        { openId: "local_student3", name: "学生3", email: "local_student3@local.com", role: "student" },
+      ];
+
+      for (const acc of accounts) {
+        const existing = await getUserByOpenId(acc.openId);
+        if (!existing) {
+          await upsertUser({
+            ...acc,
+            loginMethod: "local",
+            lastSignedIn: new Date(),
+          });
+        }
+      }
+
+      // 删除旧的重复账号 & 修复旧用户名
+      const db = await getDb();
+      if (db) {
+        const allUsers = await db.select().from(users);
+        for (const u of allUsers) {
+          // 删除旧的共享 openId 和旧格式学生账号
+          if (u.openId === "dev_local_user" || u.openId.startsWith("student_")) {
+            await db.delete(users).where(eq(users.id, u.id));
+            continue;
+          }
+          // 修复旧的学生中文数字名
+          if (u.role === "student" && u.name && ["学生", "学生一", "学生二", "学生三", "本地开发用户"].includes(u.name)) {
+            await db.update(users).set({ name: "学生1" }).where(eq(users.id, u.id));
+          }
+        }
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("[API] admin.initAccounts failed:", error);
+      res.status(500).json({ error: "初始化账号失败" });
+    }
+  });
+
+  router.put("/admin/scores/:recordId", requireAdmin, async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(500).json({ error: "数据库不可用" });
+
+      const recordId = Number(req.params.recordId);
+      const { scores: scoreUpdates } = req.body as {
+        scores: { questionId: number; earnedPoints: number }[];
+      };
+
+      if (!Array.isArray(scoreUpdates)) {
+        return res.status(400).json({ error: "参数格式错误" });
+      }
+
+      // Update each student answer's earned points
+      for (const update of scoreUpdates) {
+        await db
+          .update(studentAnswers)
+          .set({
+            earnedPoints: update.earnedPoints.toString(),
+            isCorrect: update.earnedPoints > 0,
+          })
+          .where(
+            and(
+              eq(studentAnswers.examRecordId, recordId),
+              eq(studentAnswers.questionId, update.questionId)
+            )
+          );
+      }
+
+      // Recalculate total score
+      const answers = await db
+        .select()
+        .from(studentAnswers)
+        .where(eq(studentAnswers.examRecordId, recordId));
+
+      const totalScore = Math.round(
+        answers.reduce((sum, a) => sum + Number(a.earnedPoints ?? 0), 0) * 10
+      ) / 10;
+
+      await db
+        .update(examRecords)
+        .set({ score: totalScore.toString() })
+        .where(eq(examRecords.id, recordId));
+
+      res.json({ success: true, score: totalScore });
+    } catch (error) {
+      console.error("[API] admin.updateScore failed:", error);
+      res.status(500).json({ error: "修改成绩失败" });
+    }
+  });
+
+  router.delete("/admin/scores/:recordId", requireAdmin, async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(500).json({ error: "数据库不可用" });
+
+      const recordId = Number(req.params.recordId);
+
+      await db.transaction(async (tx) => {
+        await tx.delete(studentAnswers).where(eq(studentAnswers.examRecordId, recordId));
+        await tx.delete(examRecords).where(eq(examRecords.id, recordId));
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("[API] admin.deleteScore failed:", error);
+      res.status(500).json({ error: "删除成绩失败" });
     }
   });
 

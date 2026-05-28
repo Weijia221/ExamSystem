@@ -182,14 +182,15 @@
                       :key="key"
                       class="flex items-center p-4 rounded-xl border-2"
                       :style="{
-                        borderColor: isCorrectOption(String(key)) ? '#22c55e' : isWrongSelection(String(key)) ? '#ef4444' : 'var(--color-border)',
-                        background: isCorrectOption(String(key)) ? 'rgba(34,197,94,0.05)' : isWrongSelection(String(key)) ? 'rgba(239,68,68,0.05)' : 'transparent',
+                        borderColor: isCorrectOption(String(key)) ? '#22c55e' : isWrongSelection(String(key)) ? '#ef4444' : isMissedCorrect(String(key)) ? '#eab308' : 'var(--color-border)',
+                        background: isCorrectOption(String(key)) ? 'rgba(34,197,94,0.05)' : isWrongSelection(String(key)) ? 'rgba(239,68,68,0.05)' : isMissedCorrect(String(key)) ? 'rgba(234,179,8,0.05)' : 'transparent',
                       }"
                     >
                       <span class="font-medium mr-2">{{ key }}.</span>
                       <span>{{ text }}</span>
                       <el-icon v-if="isCorrectOption(String(key))" class="ml-auto text-green-600"><CircleCheck /></el-icon>
                       <el-icon v-else-if="isWrongSelection(String(key))" class="ml-auto text-red-600"><CircleClose /></el-icon>
+                      <el-icon v-else-if="isMissedCorrect(String(key))" class="ml-auto text-yellow-500"><WarningFilled /></el-icon>
                     </div>
                   </div>
                   <div v-else class="p-4 rounded-xl border-2 space-y-2" :style="{ borderColor: practiceIsCorrect ? '#22c55e' : '#ef4444', background: practiceIsCorrect ? 'rgba(34,197,94,0.05)' : 'rgba(239,68,68,0.05)' }">
@@ -345,7 +346,7 @@
 import { ref, computed, watch, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import { Loading, Edit, Notebook, DataAnalysis, Clock, Star, CircleCheck, CircleClose } from "@element-plus/icons-vue";
+import { Loading, Edit, Notebook, DataAnalysis, Clock, Star, CircleCheck, CircleClose, WarningFilled } from "@element-plus/icons-vue";
 import { useAuthStore } from "../stores/auth";
 import { studentExamsApi } from "../api";
 import type { Exam, Question } from "../types";
@@ -413,7 +414,7 @@ const isCorrectOption = (key: string) => {
   const q = currentPracticeQ.value;
   if (!q) return false;
   if (q.type === "multiple") {
-    return q.correctAnswer.split(",").filter(Boolean).includes(key);
+    return practiceMultiSelected.value.includes(key) && q.correctAnswer.split(",").filter(Boolean).includes(key);
   }
   return q.correctAnswer === key;
 };
@@ -425,6 +426,12 @@ const isWrongSelection = (key: string) => {
     return practiceMultiSelected.value.includes(key) && !q.correctAnswer.split(",").filter(Boolean).includes(key);
   }
   return practiceSubmittedAnswer.value === key && q.correctAnswer !== key;
+};
+
+const isMissedCorrect = (key: string) => {
+  const q = currentPracticeQ.value;
+  if (!q || q.type !== "multiple") return false;
+  return !practiceMultiSelected.value.includes(key) && q.correctAnswer.split(",").filter(Boolean).includes(key);
 };
 
 const submitPracticeAnswer = () => {
@@ -445,7 +452,8 @@ const submitPracticeAnswer = () => {
   if (q.type === "multiple") {
     const correctSet = new Set(q.correctAnswer.split(",").filter(Boolean));
     const answerSet = new Set(studentAnswer.split(",").filter(Boolean));
-    practiceIsCorrect.value = correctSet.size === answerSet.size && [...correctSet].every((a) => answerSet.has(a));
+    const correctSelected = [...answerSet].filter((a) => correctSet.has(a)).length;
+    practiceIsCorrect.value = correctSet.size === correctSelected && answerSet.size === correctSet.size;
   } else if (q.type === "fillBlank") {
     const correctAnswers = q.correctAnswer.split("|").map((a) => a.trim().toLowerCase());
     practiceIsCorrect.value = correctAnswers.includes(studentAnswer.toLowerCase());
