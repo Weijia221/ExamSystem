@@ -35,6 +35,12 @@
               {{ submitResult.score >= submitResult.passingScore ? "及格" : "未及格" }}
             </el-tag>
           </div>
+          <div class="flex justify-between text-sm">
+            <span style="color: var(--color-text-secondary)">切屏次数</span>
+            <span class="font-medium" :style="{ color: switchCount >= MAX_SWITCHES ? '#ef4444' : 'inherit' }">
+              {{ switchCount }} / {{ MAX_SWITCHES }}
+            </span>
+          </div>
         </div>
 
         <el-button type="primary" class="w-full" @click="$router.push('/student/dashboard')">
@@ -110,7 +116,7 @@
                   <h2 class="text-xl font-bold">
                     第 {{ currentQuestion + 1 }} 题 / 共 {{ questions.length }} 题
                   </h2>
-                  <el-tag effect="plain">{{ Number(questions[currentQuestion].points) }} 分</el-tag>
+                  <el-tag effect="plain">{{ Number(questions[currentQuestion].examPoints) }} 分</el-tag>
                 </div>
 
                 <p class="text-lg mb-6 leading-relaxed">{{ questions[currentQuestion].title }}</p>
@@ -227,6 +233,14 @@
               <h3 class="font-bold mb-4">答题进度</h3>
 
               <el-alert
+                v-if="switchCount > 0"
+                :title="`已切屏 ${switchCount} / ${MAX_SWITCHES} 次`"
+                :type="switchCount >= MAX_SWITCHES - 1 ? 'error' : 'warning'"
+                :closable="false"
+                class="mb-4"
+              />
+
+              <el-alert
                 v-if="isTimeWarning"
                 title="时间即将结束，请尽快提交答卷"
                 type="warning"
@@ -304,6 +318,40 @@ const timer = ref<ReturnType<typeof setInterval> | null>(null);
 const submitResult = ref({ score: 0, totalPoints: 0, passingScore: 60 });
 
 const isTimeWarning = computed(() => timeLeft.value < 300);
+
+// Anti-cheat: tab switch detection
+const switchCount = ref(0);
+const MAX_SWITCHES = 3;
+const isExamActive = computed(() => !submitted.value && questions.value.length > 0);
+
+const handleVisibilityChange = () => {
+  if (!isExamActive.value) return;
+  if (document.hidden) {
+    onTabSwitch();
+  }
+};
+
+const handleBlur = () => {
+  if (!isExamActive.value) return;
+  onTabSwitch();
+};
+
+let lastSwitchTime = 0;
+const onTabSwitch = () => {
+  const now = Date.now();
+  if (now - lastSwitchTime < 1000) return;
+  lastSwitchTime = now;
+
+  switchCount.value++;
+  const remaining = MAX_SWITCHES - switchCount.value;
+
+  if (remaining <= 0) {
+    ElMessage.error("切屏次数已达上限，系统将自动提交试卷");
+    submitExam();
+  } else {
+    ElMessage.warning(`检测到切屏！已切屏 ${switchCount.value} 次，剩余 ${remaining} 次，超过 ${MAX_SWITCHES} 次将自动提交`);
+  }
+};
 
 const formatTime = (seconds: number) => {
   const h = Math.floor(seconds / 3600);
@@ -432,9 +480,13 @@ onMounted(() => {
   if (examId.value) {
     loadExam();
   }
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  window.addEventListener("blur", handleBlur);
 });
 
 onUnmounted(() => {
   if (timer.value) clearInterval(timer.value);
+  document.removeEventListener("visibilitychange", handleVisibilityChange);
+  window.removeEventListener("blur", handleBlur);
 });
 </script>
