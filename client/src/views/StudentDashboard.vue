@@ -51,23 +51,203 @@
         <main class="lg:col-span-3">
           <!-- Practice Tab -->
           <div v-if="activeTab === 'practice'" class="space-y-6 animate-fade-in">
-            <div>
-              <h2 class="text-3xl font-bold">自由练习</h2>
-              <p class="mt-1" style="color: var(--color-text-secondary)">从题库中随机抽取题目进行练习</p>
+            <div class="flex items-center justify-between">
+              <div>
+                <h2 class="text-3xl font-bold">自由练习</h2>
+                <p class="mt-1" style="color: var(--color-text-secondary)">从题库中随机练习题目</p>
+              </div>
+              <el-button
+                v-if="practiceQuestions.length > 0"
+                @click="resetPractice"
+              >
+                重新开始
+              </el-button>
             </div>
 
-            <div class="card-elegant text-center py-12">
+            <!-- Not started -->
+            <div v-if="practiceQuestions.length === 0 && !practiceLoading" class="card-elegant text-center py-12">
               <el-icon :size="48" style="color: var(--color-border)"><Edit /></el-icon>
               <h3 class="text-lg font-semibold mt-4 mb-2">自由练习模式</h3>
               <p class="mb-6" style="color: var(--color-text-secondary)">
-                随机练习题目，提升答题能力
+                随机练习题目，答完即时显示对错
               </p>
               <el-button
                 type="primary"
                 style="background: linear-gradient(135deg, #ec4899, #db2777); border: none"
-                @click="$router.push('/student/exam')"
+                @click="startPractice"
               >
                 开始练习
+              </el-button>
+            </div>
+
+            <!-- Loading -->
+            <div v-if="practiceLoading" class="card-elegant text-center py-12">
+              <el-icon class="is-loading" :size="32" style="color: #f9a8d4"><Loading /></el-icon>
+              <p class="mt-4" style="color: var(--color-text-secondary)">正在加载题目...</p>
+            </div>
+
+            <!-- Practice in progress -->
+            <template v-if="practiceQuestions.length > 0 && !practiceLoading">
+              <!-- Progress -->
+              <div class="flex items-center justify-between text-sm" style="color: var(--color-text-secondary)">
+                <span>第 {{ practiceIndex + 1 }} / {{ practiceQuestions.length }} 题</span>
+                <span>
+                  正确: <span class="font-semibold text-green-600">{{ practiceCorrect }}</span>
+                  / {{ practiceAnswered }}
+                </span>
+              </div>
+
+              <!-- Question -->
+              <div class="card-elegant">
+                <div class="flex items-center gap-3 mb-4">
+                  <el-tag size="small" effect="plain">{{ getTypeLabel(currentPracticeQ.type) }}</el-tag>
+                  <el-tag
+                    size="small"
+                    :type="currentPracticeQ.difficulty === 'easy' ? 'success' : currentPracticeQ.difficulty === 'hard' ? 'danger' : 'warning'"
+                    effect="plain"
+                  >
+                    {{ getDifficultyLabel(currentPracticeQ.difficulty) }}
+                  </el-tag>
+                  <span v-if="currentPracticeQ.category" class="text-xs" style="color: var(--color-text-secondary)">
+                    {{ currentPracticeQ.category }}
+                  </span>
+                </div>
+
+                <p class="text-lg font-medium mb-6">{{ currentPracticeQ.title }}</p>
+
+                <!-- Options (before answering) -->
+                <template v-if="!practiceCurrentAnswered">
+                  <!-- Single Choice / TrueFalse -->
+                  <div v-if="currentPracticeQ.type === 'single' || currentPracticeQ.type === 'trueFalse'" class="space-y-3">
+                    <div
+                      v-for="(text, key) in (currentPracticeQ.options || {})"
+                      :key="key"
+                      class="flex items-center p-4 rounded-xl border-2 cursor-pointer transition-all"
+                      :style="{
+                        borderColor: practiceSelected === key ? '#f9a8d4' : 'var(--color-border)',
+                        background: practiceSelected === key ? 'rgba(249,168,212,0.05)' : 'transparent',
+                      }"
+                      @click="practiceSelected = String(key)"
+                    >
+                      <span class="font-medium mr-2">{{ key }}.</span>
+                      <span>{{ text }}</span>
+                    </div>
+                  </div>
+
+                  <!-- Multiple Choice -->
+                  <div v-else-if="currentPracticeQ.type === 'multiple'" class="space-y-3">
+                    <div
+                      v-for="(text, key) in (currentPracticeQ.options || {})"
+                      :key="key"
+                      class="flex items-center p-4 rounded-xl border-2 cursor-pointer transition-all"
+                      :style="{
+                        borderColor: practiceMultiSelected.includes(String(key)) ? '#f9a8d4' : 'var(--color-border)',
+                        background: practiceMultiSelected.includes(String(key)) ? 'rgba(249,168,212,0.05)' : 'transparent',
+                      }"
+                      @click="togglePracticeMulti(String(key))"
+                    >
+                      <el-checkbox :model-value="practiceMultiSelected.includes(String(key))" class="pointer-events-none" />
+                      <span class="font-medium mx-2">{{ key }}.</span>
+                      <span>{{ text }}</span>
+                    </div>
+                  </div>
+
+                  <!-- Fill Blank -->
+                  <div v-else-if="currentPracticeQ.type === 'fillBlank'">
+                    <el-input
+                      v-model="practiceFillAnswer"
+                      placeholder="请输入答案..."
+                      size="large"
+                    />
+                  </div>
+
+                  <div class="mt-6 flex justify-end">
+                    <el-button
+                      type="primary"
+                      style="background: linear-gradient(135deg, #ec4899, #db2777); border: none"
+                      :disabled="!hasPracticeAnswer"
+                      @click="submitPracticeAnswer"
+                    >
+                      确认答案
+                    </el-button>
+                  </div>
+                </template>
+
+                <!-- Result (after answering) -->
+                <template v-else>
+                  <!-- Show all options with correct/incorrect styling -->
+                  <div v-if="currentPracticeQ.type !== 'fillBlank'" class="space-y-3">
+                    <div
+                      v-for="(text, key) in (currentPracticeQ.options || {})"
+                      :key="key"
+                      class="flex items-center p-4 rounded-xl border-2"
+                      :style="{
+                        borderColor: isCorrectOption(String(key)) ? '#22c55e' : isWrongSelection(String(key)) ? '#ef4444' : 'var(--color-border)',
+                        background: isCorrectOption(String(key)) ? 'rgba(34,197,94,0.05)' : isWrongSelection(String(key)) ? 'rgba(239,68,68,0.05)' : 'transparent',
+                      }"
+                    >
+                      <span class="font-medium mr-2">{{ key }}.</span>
+                      <span>{{ text }}</span>
+                      <el-icon v-if="isCorrectOption(String(key))" class="ml-auto text-green-600"><CircleCheck /></el-icon>
+                      <el-icon v-else-if="isWrongSelection(String(key))" class="ml-auto text-red-600"><CircleClose /></el-icon>
+                    </div>
+                  </div>
+                  <div v-else class="p-4 rounded-xl border-2 space-y-2" :style="{ borderColor: practiceIsCorrect ? '#22c55e' : '#ef4444', background: practiceIsCorrect ? 'rgba(34,197,94,0.05)' : 'rgba(239,68,68,0.05)' }">
+                    <p class="text-sm" style="color: var(--color-text-secondary)">你的答案:
+                      <span :class="practiceIsCorrect ? 'text-green-600' : 'text-red-600'" class="font-medium">{{ practiceSubmittedAnswer || '未作答' }}</span>
+                    </p>
+                    <p class="text-sm" style="color: var(--color-text-secondary)">正确答案:
+                      <span class="text-green-600 font-medium">{{ currentPracticeQ.correctAnswer }}</span>
+                    </p>
+                  </div>
+
+                  <!-- Result banner -->
+                  <div
+                    class="mt-4 p-4 rounded-xl text-center font-semibold"
+                    :style="{
+                      background: practiceIsCorrect ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
+                      color: practiceIsCorrect ? '#22c55e' : '#ef4444',
+                    }"
+                  >
+                    {{ practiceIsCorrect ? '回答正确！' : '回答错误' }}
+                  </div>
+
+                  <!-- Explanation -->
+                  <div v-if="currentPracticeQ.explanation" class="mt-4 p-4 rounded-xl" style="background: var(--color-muted)">
+                    <p class="text-sm font-medium mb-1">答案解析</p>
+                    <p class="text-sm" style="color: var(--color-text-secondary)">{{ currentPracticeQ.explanation }}</p>
+                  </div>
+
+                  <div class="mt-6 flex justify-end">
+                    <el-button
+                      type="primary"
+                      style="background: linear-gradient(135deg, #ec4899, #db2777); border: none"
+                      @click="nextPractice"
+                    >
+                      {{ practiceIndex < practiceQuestions.length - 1 ? '下一题' : '查看结果' }}
+                    </el-button>
+                  </div>
+                </template>
+              </div>
+            </template>
+
+            <!-- Finished -->
+            <div v-if="practiceFinished" class="card-elegant text-center py-12">
+              <h3 class="text-2xl font-bold mb-4">练习完成！</h3>
+              <div class="mb-6">
+                <p class="text-4xl font-black mb-2" style="color: #f9a8d4">
+                  {{ practiceCorrect }} / {{ practiceQuestions.length }}
+                </p>
+                <p style="color: var(--color-text-secondary)">
+                  正确率: {{ practiceQuestions.length > 0 ? Math.round((practiceCorrect / practiceQuestions.length) * 100) : 0 }}%
+                </p>
+              </div>
+              <el-button
+                type="primary"
+                style="background: linear-gradient(135deg, #ec4899, #db2777); border: none"
+                @click="resetPractice"
+              >
+                再来一次
               </el-button>
             </div>
           </div>
@@ -162,12 +342,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted } from "vue";
+import { ref, computed, watch, onMounted } from "vue";
 import { useRouter } from "vue-router";
-import { Loading, Edit, Notebook, DataAnalysis, Clock, Star } from "@element-plus/icons-vue";
+import { ElMessage } from "element-plus";
+import { Loading, Edit, Notebook, DataAnalysis, Clock, Star, CircleCheck, CircleClose } from "@element-plus/icons-vue";
 import { useAuthStore } from "../stores/auth";
 import { studentExamsApi } from "../api";
-import type { Exam } from "../types";
+import type { Exam, Question } from "../types";
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -181,6 +362,149 @@ const menuItems = [
   { id: "exams" as const, label: "参加考试", description: "参加教师发布的考试" },
   { id: "scores" as const, label: "查看分数", description: "查看历史成绩" },
 ];
+
+// Practice state
+interface PracticeQuestion extends Question {
+  correctAnswer: string;
+  explanation: string | null;
+}
+const practiceQuestions = ref<PracticeQuestion[]>([]);
+const practiceLoading = ref(false);
+const practiceIndex = ref(0);
+const practiceAnswered = ref(0);
+const practiceCorrect = ref(0);
+const practiceFinished = ref(false);
+const practiceSelected = ref("");
+const practiceMultiSelected = ref<string[]>([]);
+const practiceFillAnswer = ref("");
+const practiceSubmittedAnswer = ref("");
+const practiceIsCorrect = ref(false);
+const practiceCurrentAnswered = ref(false);
+
+const currentPracticeQ = computed(() => practiceQuestions.value[practiceIndex.value]);
+
+const typeLabels: Record<string, string> = {
+  single: "单选题", multiple: "多选题", trueFalse: "判断题", fillBlank: "填空题",
+};
+const difficultyLabels: Record<string, string> = {
+  easy: "简单", medium: "中等", hard: "困难",
+};
+const getTypeLabel = (t: string) => typeLabels[t] ?? t;
+const getDifficultyLabel = (d: string) => difficultyLabels[d] ?? d;
+
+const hasPracticeAnswer = computed(() => {
+  if (!currentPracticeQ.value) return false;
+  if (currentPracticeQ.value.type === "multiple") return practiceMultiSelected.value.length > 0;
+  if (currentPracticeQ.value.type === "fillBlank") return practiceFillAnswer.value.trim() !== "";
+  return practiceSelected.value !== "";
+});
+
+const togglePracticeMulti = (key: string) => {
+  const idx = practiceMultiSelected.value.indexOf(key);
+  if (idx >= 0) {
+    practiceMultiSelected.value.splice(idx, 1);
+  } else {
+    practiceMultiSelected.value.push(key);
+    practiceMultiSelected.value.sort();
+  }
+};
+
+const isCorrectOption = (key: string) => {
+  const q = currentPracticeQ.value;
+  if (!q) return false;
+  if (q.type === "multiple") {
+    return q.correctAnswer.split(",").filter(Boolean).includes(key);
+  }
+  return q.correctAnswer === key;
+};
+
+const isWrongSelection = (key: string) => {
+  const q = currentPracticeQ.value;
+  if (!q) return false;
+  if (q.type === "multiple") {
+    return practiceMultiSelected.value.includes(key) && !q.correctAnswer.split(",").filter(Boolean).includes(key);
+  }
+  return practiceSubmittedAnswer.value === key && q.correctAnswer !== key;
+};
+
+const submitPracticeAnswer = () => {
+  const q = currentPracticeQ.value;
+  if (!q) return;
+
+  let studentAnswer = "";
+  if (q.type === "multiple") {
+    studentAnswer = practiceMultiSelected.value.sort().join(",");
+  } else if (q.type === "fillBlank") {
+    studentAnswer = practiceFillAnswer.value.trim();
+  } else {
+    studentAnswer = practiceSelected.value;
+  }
+
+  practiceSubmittedAnswer.value = studentAnswer;
+
+  if (q.type === "multiple") {
+    const correctSet = new Set(q.correctAnswer.split(",").filter(Boolean));
+    const answerSet = new Set(studentAnswer.split(",").filter(Boolean));
+    practiceIsCorrect.value = correctSet.size === answerSet.size && [...correctSet].every((a) => answerSet.has(a));
+  } else if (q.type === "fillBlank") {
+    const correctAnswers = q.correctAnswer.split("|").map((a) => a.trim().toLowerCase());
+    practiceIsCorrect.value = correctAnswers.includes(studentAnswer.toLowerCase());
+  } else {
+    practiceIsCorrect.value = studentAnswer === q.correctAnswer;
+  }
+
+  practiceAnswered.value++;
+  if (practiceIsCorrect.value) practiceCorrect.value++;
+  practiceCurrentAnswered.value = true;
+};
+
+const nextPractice = () => {
+  if (practiceIndex.value < practiceQuestions.value.length - 1) {
+    practiceIndex.value++;
+    practiceSelected.value = "";
+    practiceMultiSelected.value = [];
+    practiceFillAnswer.value = "";
+    practiceSubmittedAnswer.value = "";
+    practiceIsCorrect.value = false;
+    practiceCurrentAnswered.value = false;
+  } else {
+    practiceFinished.value = true;
+  }
+};
+
+const startPractice = async () => {
+  practiceLoading.value = true;
+  practiceFinished.value = false;
+  practiceIndex.value = 0;
+  practiceAnswered.value = 0;
+  practiceCorrect.value = 0;
+  practiceSelected.value = "";
+  practiceMultiSelected.value = [];
+  practiceFillAnswer.value = "";
+  practiceSubmittedAnswer.value = "";
+  practiceIsCorrect.value = false;
+  practiceCurrentAnswered.value = false;
+  try {
+    practiceQuestions.value = await studentExamsApi.practiceQuestions();
+    if (practiceQuestions.value.length === 0) {
+      ElMessage.info("题库暂无题目");
+    }
+  } catch {
+    practiceQuestions.value = [];
+    ElMessage.error("加载题目失败");
+  } finally {
+    practiceLoading.value = false;
+  }
+};
+
+const resetPractice = () => {
+  practiceQuestions.value = [];
+  practiceFinished.value = false;
+  practiceIndex.value = 0;
+  practiceAnswered.value = 0;
+  practiceCorrect.value = 0;
+  practiceCurrentAnswered.value = false;
+};
 
 const loadData = async () => {
   loading.value = true;

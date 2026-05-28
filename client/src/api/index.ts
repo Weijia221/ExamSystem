@@ -83,6 +83,10 @@ export const studentExamsApi = {
         data
       )
       .then((r) => r.data),
+  practiceQuestions: () =>
+    api.get<(Question & { correctAnswer: string; explanation: string | null })[]>(
+      "/student/practice/questions"
+    ).then((r) => r.data),
 };
 
 // Scores

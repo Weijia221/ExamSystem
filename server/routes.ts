@@ -385,6 +385,39 @@ export function createApiRouter(): Router {
     }
   });
 
+  // Practice: get all questions for students
+  router.get("/student/practice/questions", requireAuth, async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.json([]);
+
+      const result = await db
+        .select({
+          id: questions.id,
+          type: questions.type,
+          title: questions.title,
+          options: questions.options,
+          correctAnswer: questions.correctAnswer,
+          explanation: questions.explanation,
+          difficulty: questions.difficulty,
+          category: questions.category,
+          points: questions.points,
+        })
+        .from(questions);
+
+      // Shuffle questions
+      for (let i = result.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [result[i], result[j]] = [result[j], result[i]];
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error("[API] studentPractice.getQuestions failed:", error);
+      res.status(500).json({ error: "获取练习题目失败" });
+    }
+  });
+
   // Submit exam answers
   router.post("/student/exams/:id/submit", requireAuth, async (req, res) => {
     try {
@@ -609,6 +642,13 @@ export function createApiRouter(): Router {
         .from(studentAnswers)
         .where(eq(studentAnswers.examRecordId, recordId));
 
+      // Get exam question points mapping
+      const examQs = await db
+        .select()
+        .from(examQuestions)
+        .where(eq(examQuestions.examId, r.examId));
+      const pointsMap = new Map(examQs.map((eq) => [eq.questionId, Number(eq.points)]));
+
       const questionDetails = [];
       for (const a of answers) {
         const q = await db.select().from(questions).where(eq(questions.id, a.questionId));
@@ -622,7 +662,7 @@ export function createApiRouter(): Router {
             studentAnswer: a.studentAnswer,
             isCorrect: a.isCorrect,
             earnedPoints: Number(a.earnedPoints ?? 0),
-            totalPoints: Number(q[0].points),
+            totalPoints: pointsMap.get(a.questionId) ?? Number(q[0].points),
           });
         }
       }
