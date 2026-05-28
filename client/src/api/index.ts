@@ -86,9 +86,31 @@ export const studentExamsApi = {
 };
 
 // Scores
+export interface ScoreDetail {
+  recordId: number;
+  examTitle: string;
+  score: number;
+  totalPoints: number;
+  passingScore: number;
+  status: string | null;
+  submittedAt: string;
+  questions: {
+    questionId: number;
+    title: string;
+    type: string;
+    options: Record<string, string> | null;
+    correctAnswer: string;
+    studentAnswer: string;
+    isCorrect: boolean | null;
+    earnedPoints: number;
+    totalPoints: number;
+  }[];
+}
+
 export const scoresApi = {
   teacher: () => api.get<TeacherScore[]>("/teacher/scores").then((r) => r.data),
   student: () => api.get<StudentScore[]>("/student/scores").then((r) => r.data),
+  detail: (recordId: number) => api.get<ScoreDetail>(`/scores/${recordId}/detail`).then((r) => r.data),
 };
 
 export default api;

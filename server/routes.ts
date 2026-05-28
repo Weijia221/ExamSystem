@@ -578,5 +578,70 @@ export function createApiRouter(): Router {
     }
   });
 
+  // Score detail with per-question breakdown
+  router.get("/scores/:id/detail", requireAuth, async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(500).json({ error: "数据库不可用" });
+
+      const recordId = Number(req.params.id);
+
+      // Get exam record
+      const record = await db.select().from(examRecords).where(eq(examRecords.id, recordId));
+      if (!record.length) return res.status(404).json({ error: "成绩记录不存在" });
+
+      const r = record[0];
+
+      // Get exam info
+      const exam = await db.select().from(exams).where(eq(exams.id, r.examId));
+      if (!exam.length) return res.status(404).json({ error: "考试不存在" });
+
+      // Permission check: student can view own record, teacher can view records of their exams
+      const isOwner = r.studentId === req.user!.id;
+      const isExamOwner = exam[0].createdBy === req.user!.id;
+      if (!isOwner && !isExamOwner) {
+        return res.status(403).json({ error: "无权查看此成绩" });
+      }
+
+      // Get student answers with question details
+      const answers = await db
+        .select()
+        .from(studentAnswers)
+        .where(eq(studentAnswers.examRecordId, recordId));
+
+      const questionDetails = [];
+      for (const a of answers) {
+        const q = await db.select().from(questions).where(eq(questions.id, a.questionId));
+        if (q.length) {
+          questionDetails.push({
+            questionId: a.questionId,
+            title: q[0].title,
+            type: q[0].type,
+            options: q[0].options,
+            correctAnswer: q[0].correctAnswer,
+            studentAnswer: a.studentAnswer,
+            isCorrect: a.isCorrect,
+            earnedPoints: Number(a.earnedPoints ?? 0),
+            totalPoints: Number(q[0].points),
+          });
+        }
+      }
+
+      res.json({
+        recordId: r.id,
+        examTitle: exam[0].title,
+        score: Number(r.score ?? 0),
+        totalPoints: Number(exam[0].totalPoints),
+        passingScore: Number(exam[0].passingScore ?? 60),
+        status: r.status,
+        submittedAt: r.endTime ? new Date(r.endTime).toLocaleString("zh-CN") : "-",
+        questions: questionDetails,
+      });
+    } catch (error) {
+      console.error("[API] scores.detail failed:", error);
+      res.status(500).json({ error: "获取成绩详情失败" });
+    }
+  });
+
   return router;
 }

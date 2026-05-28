@@ -73,8 +73,8 @@
           </el-table-column>
           <el-table-column label="提交时间" prop="submittedAt" width="200" />
           <el-table-column label="操作" width="120">
-            <template #default>
-              <el-button size="small" type="primary" text>查看详情</el-button>
+            <template #default="{ row }">
+              <el-button size="small" type="primary" text @click="viewDetail(row.id)">查看详情</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -87,6 +87,55 @@
           导出成绩
         </el-button>
       </div>
+
+      <!-- Detail Dialog -->
+      <el-dialog
+        v-model="showDetail"
+        :title="detailData?.examTitle + ' — 成绩详情'"
+        width="680px"
+        destroy-on-close
+      >
+        <div v-if="detailLoading" class="text-center py-8">
+          <el-icon class="is-loading" :size="32" style="color: #f9a8d4"><Loading /></el-icon>
+        </div>
+        <div v-else-if="detailData" class="space-y-4">
+          <div class="flex justify-between items-center p-4 rounded-xl" style="background: var(--color-muted)">
+            <span class="text-sm" style="color: var(--color-text-secondary)">总分</span>
+            <span class="text-2xl font-bold" :style="{ color: detailData.score >= detailData.passingScore ? '#22c55e' : '#ef4444' }">
+              {{ detailData.score }} / {{ detailData.totalPoints }}
+            </span>
+          </div>
+          <div class="space-y-3">
+            <div
+              v-for="(q, idx) in detailData.questions"
+              :key="q.questionId"
+              class="p-4 rounded-xl border"
+              :style="{
+                borderColor: q.isCorrect ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)',
+                background: q.isCorrect ? 'rgba(34,197,94,0.03)' : 'rgba(239,68,68,0.03)',
+              }"
+            >
+              <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-sm font-semibold" style="color: #f9a8d4">{{ idx + 1 }}</span>
+                  <el-tag size="small" effect="plain">{{ getTypeLabel(q.type) }}</el-tag>
+                </div>
+                <span class="text-sm font-medium" :style="{ color: q.isCorrect ? '#22c55e' : '#ef4444' }">
+                  {{ q.earnedPoints }} / {{ q.totalPoints }} 分
+                </span>
+              </div>
+              <p class="text-sm font-medium mb-2">{{ q.title }}</p>
+              <div class="text-xs space-y-1" style="color: var(--color-text-secondary)">
+                <p>学生答案: <span :class="q.isCorrect ? 'text-green-600' : 'text-red-600'">{{ formatAnswer(q.studentAnswer, q.options, q.type) || '未作答' }}</span></p>
+                <p>正确答案: <span class="text-green-600">{{ formatAnswer(q.correctAnswer, q.options, q.type) }}</span></p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <template #footer>
+          <el-button @click="showDetail = false">关闭</el-button>
+        </template>
+      </el-dialog>
     </div>
   </div>
 </template>
@@ -94,12 +143,19 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { ArrowLeft, Loading, DataAnalysis, Download } from "@element-plus/icons-vue";
-import { scoresApi } from "../api";
+import { scoresApi, type ScoreDetail } from "../api";
 import type { TeacherScore } from "../types";
 
 const scores = ref<TeacherScore[]>([]);
 const loading = ref(true);
 const selectedExam = ref("");
+const detailData = ref<ScoreDetail | null>(null);
+const detailLoading = ref(false);
+
+const showDetail = computed({
+  get: () => !!detailData.value,
+  set: (val) => { if (!val) detailData.value = null; },
+});
 
 const examNames = computed(() => [...new Set(scores.value.map((s) => s.examTitle))]);
 
@@ -125,6 +181,34 @@ const statistics = computed(() => {
     },
   ];
 });
+
+const typeLabels: Record<string, string> = {
+  single: "单选题", multiple: "多选题", trueFalse: "判断题", fillBlank: "填空题",
+};
+const getTypeLabel = (t: string) => typeLabels[t] ?? t;
+
+const formatAnswer = (answer: string, options: Record<string, string> | null, type: string) => {
+  if (!answer) return "";
+  if (options && (type === "single" || type === "trueFalse" || type === "multiple")) {
+    if (type === "multiple") {
+      return answer.split(",").filter(Boolean).map((k) => `${k}.${options[k] ?? ""}`).join("、");
+    }
+    return `${answer}.${options[answer] ?? ""}`;
+  }
+  return answer;
+};
+
+const viewDetail = async (recordId: number) => {
+  detailLoading.value = true;
+  detailData.value = null;
+  try {
+    detailData.value = await scoresApi.detail(recordId);
+  } catch {
+    detailData.value = null;
+  } finally {
+    detailLoading.value = false;
+  }
+};
 
 onMounted(async () => {
   loading.value = true;

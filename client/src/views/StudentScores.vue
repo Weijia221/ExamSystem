@@ -81,28 +81,45 @@
       <!-- Score Detail Dialog -->
       <el-dialog
         v-model="showDetail"
-        :title="selectedScore?.examTitle"
-        width="420px"
+        :title="selectedScore?.examTitle + ' — 成绩详情'"
+        width="680px"
         destroy-on-close
       >
-        <div v-if="selectedScore" class="space-y-4">
-          <div class="flex justify-between text-sm">
-            <span style="color: var(--color-text-secondary)">成绩</span>
-            <span class="font-bold text-lg">{{ selectedScore.score }}/{{ selectedScore.totalPoints }}</span>
+        <div v-if="detailLoading" class="text-center py-8">
+          <el-icon class="is-loading" :size="32" style="color: #f9a8d4"><Loading /></el-icon>
+        </div>
+        <div v-else-if="detailData" class="space-y-4">
+          <div class="flex justify-between items-center p-4 rounded-xl" style="background: var(--color-muted)">
+            <span class="text-sm" style="color: var(--color-text-secondary)">总分</span>
+            <span class="text-2xl font-bold" :style="{ color: detailData.score >= detailData.passingScore ? '#22c55e' : '#ef4444' }">
+              {{ detailData.score }} / {{ detailData.totalPoints }}
+            </span>
           </div>
-          <div class="flex justify-between text-sm">
-            <span style="color: var(--color-text-secondary)">状态</span>
-            <el-tag :type="selectedScore.status === 'passed' ? 'success' : 'danger'" size="small">
-              {{ selectedScore.status === "passed" ? "及格" : "未及格" }}
-            </el-tag>
-          </div>
-          <div class="flex justify-between text-sm">
-            <span style="color: var(--color-text-secondary)">用时</span>
-            <span class="font-medium">{{ selectedScore.duration }} 分钟</span>
-          </div>
-          <div class="flex justify-between text-sm">
-            <span style="color: var(--color-text-secondary)">提交时间</span>
-            <span class="font-medium">{{ selectedScore.submittedAt }}</span>
+          <div class="space-y-3">
+            <div
+              v-for="(q, idx) in detailData.questions"
+              :key="q.questionId"
+              class="p-4 rounded-xl border"
+              :style="{
+                borderColor: q.isCorrect ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)',
+                background: q.isCorrect ? 'rgba(34,197,94,0.03)' : 'rgba(239,68,68,0.03)',
+              }"
+            >
+              <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-sm font-semibold" style="color: #f9a8d4">{{ idx + 1 }}</span>
+                  <el-tag size="small" effect="plain">{{ getTypeLabel(q.type) }}</el-tag>
+                </div>
+                <span class="text-sm font-medium" :style="{ color: q.isCorrect ? '#22c55e' : '#ef4444' }">
+                  {{ q.earnedPoints }} / {{ q.totalPoints }} 分
+                </span>
+              </div>
+              <p class="text-sm font-medium mb-2">{{ q.title }}</p>
+              <div class="text-xs space-y-1" style="color: var(--color-text-secondary)">
+                <p>我的答案: <span :class="q.isCorrect ? 'text-green-600' : 'text-red-600'">{{ formatAnswer(q.studentAnswer, q.options, q.type) || '未作答' }}</span></p>
+                <p>正确答案: <span class="text-green-600">{{ formatAnswer(q.correctAnswer, q.options, q.type) }}</span></p>
+              </div>
+            </div>
           </div>
         </div>
         <template #footer>
@@ -116,17 +133,49 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from "vue";
 import { ArrowLeft, Loading, DataAnalysis, Clock } from "@element-plus/icons-vue";
-import { scoresApi } from "../api";
+import { scoresApi, type ScoreDetail } from "../api";
 import type { StudentScore } from "../types";
 
 const scores = ref<StudentScore[]>([]);
 const loading = ref(true);
 const selectedScore = ref<StudentScore | null>(null);
+const detailData = ref<ScoreDetail | null>(null);
+const detailLoading = ref(false);
 
 const showDetail = computed({
   get: () => !!selectedScore.value,
-  set: (val) => { if (!val) selectedScore.value = null; },
+  set: (val) => { if (!val) { selectedScore.value = null; detailData.value = null; } },
 });
+
+watch(selectedScore, async (score) => {
+  if (score) {
+    detailLoading.value = true;
+    detailData.value = null;
+    try {
+      detailData.value = await scoresApi.detail(score.id);
+    } catch {
+      detailData.value = null;
+    } finally {
+      detailLoading.value = false;
+    }
+  }
+});
+
+const typeLabels: Record<string, string> = {
+  single: "单选题", multiple: "多选题", trueFalse: "判断题", fillBlank: "填空题",
+};
+const getTypeLabel = (t: string) => typeLabels[t] ?? t;
+
+const formatAnswer = (answer: string, options: Record<string, string> | null, type: string) => {
+  if (!answer) return "";
+  if (options && (type === "single" || type === "trueFalse" || type === "multiple")) {
+    if (type === "multiple") {
+      return answer.split(",").filter(Boolean).map((k) => `${k}.${options[k] ?? ""}`).join("、");
+    }
+    return `${answer}.${options[answer] ?? ""}`;
+  }
+  return answer;
+};
 
 const statistics = computed(() => {
   const data = scores.value;
