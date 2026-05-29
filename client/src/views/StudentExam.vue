@@ -83,6 +83,16 @@
         </div>
       </div>
 
+      <!-- Forbidden: already taken -->
+      <div v-else-if="forbidden" class="flex items-center justify-center py-32">
+        <div class="card-elegant max-w-md w-full text-center">
+          <el-icon :size="48" style="color: var(--color-border)"><Notebook /></el-icon>
+          <h3 class="text-lg font-semibold mt-4 mb-2">您已参加过此考试</h3>
+          <p class="mb-6" style="color: var(--color-text-secondary)">此考试不允许重复参加</p>
+          <el-button @click="$router.push('/student/dashboard')">返回学生中心</el-button>
+        </div>
+      </div>
+
       <!-- No Exam Selected -->
       <div v-else-if="!examId" class="flex items-center justify-center py-32">
         <div class="card-elegant max-w-md w-full text-center">
@@ -314,6 +324,7 @@ const submitted = ref(false);
 const timeLeft = ref(3600);
 const startTime = ref("");
 const timer = ref<ReturnType<typeof setInterval> | null>(null);
+const forbidden = ref(false);
 
 const submitResult = ref({ score: 0, totalPoints: 0, passingScore: 60 });
 
@@ -368,11 +379,11 @@ const currentMultipleAnswers = computed(() => {
   if (!questions.value.length) return [];
   const qId = questions.value[currentQuestion.value]?.id;
   const raw = answers.value[qId] || "";
-  return raw ? raw.split("").filter(Boolean) : [];
+  return raw ? raw.split(",").filter(Boolean) : [];
 });
 
 const setMultipleAnswers = (questionId: number, values: string[]) => {
-  answers.value[questionId] = values.sort().join("");
+  answers.value[questionId] = values.sort().join(",");
 };
 
 const startTimer = (durationMinutes: number) => {
@@ -395,10 +406,28 @@ const loadExam = async () => {
     console.log("[DEBUG] questions count:", data.questions?.length);
     examInfo.value = data.exam;
     questions.value = data.questions;
+
+    if (!data.exam.allowRetake) {
+      try {
+        await ElMessageBox.confirm(
+          "教师设置不允许重复考试，提交后将无法再次参加。确定开始考试吗？",
+          "提示",
+          { confirmButtonText: "确定", cancelButtonText: "取消", type: "warning" }
+        );
+      } catch {
+        router.push("/student/dashboard");
+        return;
+      }
+    }
+
     startTime.value = new Date().toISOString();
     startTimer(data.exam.duration);
-  } catch {
-    ElMessage.error("加载考试失败");
+  } catch (err: any) {
+    if (err?.response?.status === 403) {
+      forbidden.value = true;
+    } else {
+      ElMessage.error("加载考试失败");
+    }
   } finally {
     loading.value = false;
   }

@@ -55,6 +55,13 @@
                   class="w-full"
                 />
               </el-form-item>
+
+              <el-form-item label="允许重复考试">
+                <el-switch v-model="examData.allowRetake" />
+                <span class="text-xs ml-2" style="color: var(--color-text-secondary)">
+                  {{ examData.allowRetake ? "学生可多次参加" : "每人只能参加一次" }}
+                </span>
+              </el-form-item>
             </el-form>
           </div>
         </div>
@@ -218,6 +225,7 @@ const examData = ref({
   description: "",
   duration: 60,
   passingScore: 60,
+  allowRetake: true,
 });
 
 const selectedQuestions = ref<SelectedQuestion[]>([]);
@@ -303,6 +311,7 @@ const handlePublish = async () => {
       totalPoints: totalCalculatedPoints.value,
       duration: examData.value.duration,
       passingScore: examData.value.passingScore,
+      allowRetake: examData.value.allowRetake,
       questionIds,
       questionPoints,
     });

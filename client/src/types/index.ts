@@ -39,6 +39,7 @@ export interface Exam {
   endTime: string | null;
   passingScore: string | null;
   status: "draft" | "published" | "closed" | null;
+  allowRetake: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -84,9 +85,11 @@ export interface TeacherScore {
   id: number;
   examTitle: string;
   studentId: number;
+  studentName: string;
   score: number;
   totalPoints: number;
   submittedAt: string;
+  duration: number | null;
   status: string | null;
 }
 

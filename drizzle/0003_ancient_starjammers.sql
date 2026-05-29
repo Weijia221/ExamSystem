@@ -1,0 +1,1 @@
+ALTER TABLE `exams` ADD `allowRetake` boolean DEFAULT true;

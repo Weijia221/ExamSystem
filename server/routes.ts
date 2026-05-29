@@ -271,7 +271,7 @@ export function createApiRouter(): Router {
       const db = await getDb();
       if (!db) return res.status(500).json({ error: "数据库不可用" });
 
-      const { title, description, totalPoints, duration, startTime, endTime, passingScore, questionIds, questionPoints } = req.body;
+      const { title, description, totalPoints, duration, startTime, endTime, passingScore, questionIds, questionPoints, allowRetake } = req.body;
 
       if (!title || !totalPoints || !duration || !questionIds?.length) {
         return res.status(400).json({ error: "缺少必填字段" });
@@ -287,18 +287,15 @@ export function createApiRouter(): Router {
         endTime: endTime ? new Date(endTime) : null,
         passingScore: passingScore?.toString() ?? null,
         status: "draft",
+        allowRetake: allowRetake !== false,
       });
 
       const rawInsertId = (result as any).insertId ?? (result as any)[0]?.insertId ?? 0;
       const examId = Number(rawInsertId);
-      console.log("[DEBUG] create exam raw result keys =", Object.keys(result as any));
-      console.log("[DEBUG] create exam examId =", examId, "questionIds =", questionIds);
 
       if (!examId || examId === 0) {
-        console.error("[DEBUG] examId is invalid! Falling back to query");
         const lastExam = await db.select({ id: exams.id }).from(exams).where(eq(exams.createdBy, req.user!.id));
         const fallbackId = lastExam.length > 0 ? Math.max(...lastExam.map(e => e.id)) : 0;
-        console.log("[DEBUG] fallback examId =", fallbackId);
         if (fallbackId > 0) {
           for (let i = 0; i < questionIds.length; i++) {
             await db.insert(examQuestions).values({ examId: fallbackId, questionId: questionIds[i], order: i + 1, points: (questionPoints?.[i] ?? 1).toString() });
@@ -390,7 +387,28 @@ export function createApiRouter(): Router {
         .select()
         .from(exams)
         .where(eq(exams.status, "published"));
-      res.json(result);
+
+      // Check which exams the student has already taken
+      const takenRecords = await db
+        .select({ examId: examRecords.examId })
+        .from(examRecords)
+        .where(
+          and(
+            eq(examRecords.studentId, req.user!.id),
+            or(
+              eq(examRecords.status, "submitted"),
+              eq(examRecords.status, "graded")
+            )
+          )
+        );
+      const takenExamIds = new Set(takenRecords.map((r) => r.examId));
+
+      const examsWithStatus = result.map((exam) => ({
+        ...exam,
+        hasTaken: takenExamIds.has(exam.id),
+      }));
+
+      res.json(examsWithStatus);
     } catch (error) {
       console.error("[API] studentExams.listAvailable failed:", error);
       res.status(500).json({ error: "获取可用考试失败" });
@@ -403,17 +421,34 @@ export function createApiRouter(): Router {
       if (!db) return res.status(500).json({ error: "数据库不可用" });
 
       const examId = Number(req.params.id);
-      console.log("[DEBUG] student/exams/:id examId =", examId);
 
       const exam = await db.select().from(exams).where(eq(exams.id, examId));
       if (!exam.length) return res.status(404).json({ error: "考试不存在" });
+
+      // Check if student has already taken this exam and retake is not allowed
+      if (!exam[0].allowRetake) {
+        const existingRecord = await db
+          .select({ id: examRecords.id })
+          .from(examRecords)
+          .where(
+            and(
+              eq(examRecords.examId, examId),
+              eq(examRecords.studentId, req.user!.id),
+              or(
+                eq(examRecords.status, "submitted"),
+                eq(examRecords.status, "graded")
+              )
+            )
+          );
+        if (existingRecord.length > 0) {
+          return res.status(403).json({ error: "您已参加过此考试，不可重复参加" });
+        }
+      }
 
       const examQs = await db
         .select()
         .from(examQuestions)
         .where(eq(examQuestions.examId, examId));
-
-      console.log("[DEBUG] examQs count =", examQs.length, JSON.stringify(examQs));
 
       // Fetch actual question data for each exam question
       const questionsData = [];
@@ -430,12 +465,6 @@ export function createApiRouter(): Router {
 
       // Sort by order
       questionsData.sort((a, b) => a.order - b.order);
-
-      console.log("[DEBUG] questionsData count =", questionsData.length);
-      if (questionsData.length > 0) {
-        console.log("[DEBUG] sample question keys =", Object.keys(questionsData[0]));
-        console.log("[DEBUG] sample options type =", typeof questionsData[0].options, questionsData[0].options);
-      }
 
       res.json({
         exam: exam[0],
@@ -492,18 +521,36 @@ export function createApiRouter(): Router {
         answers: Record<number, string>; // questionId -> studentAnswer
         startTime: string;
       };
-      console.log("[DEBUG] submit examId =", examId, "answers =", JSON.stringify(answers));
 
       // Get exam
       const exam = await db.select().from(exams).where(eq(exams.id, examId));
       if (!exam.length) return res.status(404).json({ error: "考试不存在" });
+
+      // Check if student has already taken this exam and retake is not allowed
+      if (!exam[0].allowRetake) {
+        const existingRecord = await db
+          .select({ id: examRecords.id })
+          .from(examRecords)
+          .where(
+            and(
+              eq(examRecords.examId, examId),
+              eq(examRecords.studentId, req.user!.id),
+              or(
+                eq(examRecords.status, "submitted"),
+                eq(examRecords.status, "graded")
+              )
+            )
+          );
+        if (existingRecord.length > 0) {
+          return res.status(403).json({ error: "您已参加过此考试，不可重复参加" });
+        }
+      }
 
       // Get exam questions with their points
       const examQs = await db
         .select()
         .from(examQuestions)
         .where(eq(examQuestions.examId, examId));
-      console.log("[DEBUG] submit examQs count =", examQs.length);
 
       // Create exam record
       const recordResult = await db.insert(examRecords).values({
@@ -525,7 +572,6 @@ export function createApiRouter(): Router {
           recordId = Math.max(...lastRecord.map(r => r.id));
         }
       }
-      console.log("[DEBUG] recordId =", recordId);
 
       let totalScore = 0;
 
@@ -625,15 +671,30 @@ export function createApiRouter(): Router {
       // Map exam titles
       const examMap = new Map(teacherExams.map((e) => [e.id, e]));
 
+      // Map student names
+      const allStudentIds = [...new Set(records.map((r) => r.studentId))];
+      const userMap = new Map<number, string>();
+      if (allStudentIds.length > 0) {
+        const allUsers = await db.select().from(users);
+        for (const u of allUsers) {
+          userMap.set(u.id, u.name || `学生${u.id}`);
+        }
+      }
+
       const result = records.map((r) => {
         const exam = examMap.get(r.examId);
+        const durationMinutes = r.endTime
+          ? Math.round((new Date(r.endTime).getTime() - new Date(r.startTime).getTime()) / 60000)
+          : null;
         return {
           id: r.id,
           examTitle: exam?.title ?? "未知考试",
           studentId: r.studentId,
+          studentName: userMap.get(r.studentId) || `学生${r.studentId}`,
           score: Number(r.score ?? 0),
           totalPoints: Number(exam?.totalPoints ?? 0),
           submittedAt: r.endTime ? new Date(r.endTime).toLocaleString("zh-CN") : "-",
+          duration: durationMinutes,
           status: r.status,
         };
       });
@@ -836,6 +897,9 @@ export function createApiRouter(): Router {
       const result = records.map((r) => {
         const exam = examMap.get(r.examId);
         const student = userMap.get(r.studentId);
+        const durationMinutes = r.endTime
+          ? Math.round((new Date(r.endTime).getTime() - new Date(r.startTime).getTime()) / 60000)
+          : null;
         return {
           id: r.id,
           examTitle: exam?.title ?? "未知考试",
@@ -843,6 +907,7 @@ export function createApiRouter(): Router {
           score: Number(r.score ?? 0),
           totalPoints: Number(exam?.totalPoints ?? 0),
           submittedAt: r.endTime ? new Date(r.endTime).toLocaleString("zh-CN") : "-",
+          duration: durationMinutes,
           status: r.status,
         };
       });

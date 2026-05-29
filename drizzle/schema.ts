@@ -67,6 +67,7 @@ export const exams = mysqlTable("exams", {
   endTime: timestamp("endTime"), // When the exam is no longer available
   passingScore: decimal("passingScore", { precision: 8, scale: 2 }), // Passing score
   status: mysqlEnum("status", ["draft", "published", "closed"]).default("draft"),
+  allowRetake: boolean("allowRetake").default(true),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

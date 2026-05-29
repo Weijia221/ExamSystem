@@ -296,13 +296,16 @@
                     </span>
                   </div>
                 </div>
-                <el-button
-                  type="primary"
-                  style="background: linear-gradient(135deg, #ec4899, #db2777); border: none"
-                  @click="startExam(exam.id)"
-                >
-                  参加考试
-                </el-button>
+                <div class="flex items-center gap-3">
+                  <el-button
+                    type="primary"
+                    :disabled="exam.hasTaken && !exam.allowRetake"
+                    style="background: linear-gradient(135deg, #ec4899, #db2777); border: none"
+                    @click="startExam(exam.id)"
+                  >
+                    {{ exam.hasTaken && !exam.allowRetake ? '已参加' : exam.hasTaken ? '再次考试' : '参加考试' }}
+                  </el-button>
+                </div>
               </div>
             </div>
           </div>
@@ -355,7 +358,7 @@ const router = useRouter();
 const authStore = useAuthStore();
 
 const activeTab = ref<"practice" | "exams" | "scores">("practice");
-const availableExams = ref<Exam[]>([]);
+const availableExams = ref<(Exam & { hasTaken: boolean })[]>([]);
 const loading = ref(true);
 
 const menuItems = [

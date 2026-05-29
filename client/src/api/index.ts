@@ -72,6 +72,7 @@ export const examsApi = {
     passingScore?: number;
     questionIds: number[];
     questionPoints?: number[];
+    allowRetake?: boolean;
   }) => api.post<{ success: boolean; id: number }>("/exams", data).then((r) => r.data),
   publish: (id: number) =>
     api.post<{ success: boolean }>(`/exams/${id}/publish`).then((r) => r.data),
@@ -81,7 +82,7 @@ export const examsApi = {
 
 // Student exams
 export const studentExamsApi = {
-  listAvailable: () => api.get<Exam[]>("/student/exams").then((r) => r.data),
+  listAvailable: () => api.get<(Exam & { hasTaken: boolean })[]>("/student/exams").then((r) => r.data),
   getExam: (id: number) =>
     api.get<ExamWithQuestions>(`/student/exams/${id}`).then((r) => r.data),
   submit: (
@@ -151,6 +152,7 @@ export interface AdminScore {
   score: number;
   totalPoints: number;
   submittedAt: string;
+  duration: number | null;
   status: string | null;
 }
 

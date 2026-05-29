@@ -22,6 +22,13 @@
       "when": 1779989181698,
       "tag": "0002_lethal_mephisto",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1780034042303,
+      "tag": "0003_ancient_starjammers",
+      "breakpoints": true
     }
   ]
 }

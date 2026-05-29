@@ -313,6 +313,9 @@
                       {{ row.submittedAt }}
                     </template>
                   </el-table-column>
+                  <el-table-column label="考试时长" width="100">
+                    <template #default="{ row }">{{ row.duration != null ? row.duration + ' 分钟' : '-' }}</template>
+                  </el-table-column>
                   <el-table-column label="操作" width="130">
                     <template #default="{ row }">
                       <el-button size="small" type="primary" text @click="viewDetail(row.id)">详情</el-button>

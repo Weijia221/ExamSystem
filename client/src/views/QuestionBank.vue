@@ -235,24 +235,7 @@ import { ref, computed, onMounted } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { ArrowLeft, Plus, Loading, Document } from "@element-plus/icons-vue";
 import { questionsApi } from "../api";
-import { useAuthStore } from "../stores/auth";
 import type { Question, QuestionType, Difficulty } from "../types";
-
-const authStore = useAuthStore();
-const STORAGE_KEY = "examhub_questions";
-
-function loadFromStorage(): Question[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveToStorage(list: Question[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-}
 
 const OPTION_KEYS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -323,15 +306,9 @@ const getDifficultyLabel = (d: string) => difficultyLabels[d] ?? d;
 const loadQuestions = async () => {
   loading.value = true;
   try {
-    if (authStore.isAuthenticated) {
-      questions.value = await questionsApi.list();
-      saveToStorage(questions.value);
-    } else {
-      questions.value = loadFromStorage();
-    }
-  } catch (err: any) {
-    console.error("[QuestionBank] API list failed:", err?.response?.status, err?.response?.data || err?.message);
-    questions.value = loadFromStorage();
+    questions.value = await questionsApi.list();
+  } catch {
+    questions.value = [];
   } finally {
     loading.value = false;
   }
@@ -412,51 +389,19 @@ const handleSave = async () => {
       points: 1,
     };
 
-    if (authStore.isAuthenticated) {
-      try {
-        if (editingId.value) {
-          await questionsApi.update(editingId.value, payload);
-          ElMessage.success("题目已更新");
-        } else {
-          await questionsApi.create(payload);
-          ElMessage.success("题目已保存到题库");
-        }
-        showForm.value = false;
-        editingId.value = null;
-        formData.value = getEmptyForm();
-        await loadQuestions();
-        return;
-      } catch (err: any) {
-        console.error("[QuestionBank] API create failed:", err?.response?.status, err?.response?.data || err?.message);
-        ElMessage.error("保存到服务器失败: " + (err?.response?.data?.error || err?.message || "未知错误"));
-        saving.value = false;
-        return;
-      }
-    }
-
-    // localStorage fallback
     if (editingId.value) {
-      questions.value = questions.value.map((q) =>
-        q.id === editingId.value ? { ...q, ...payload } as Question : q
-      );
-      ElMessage.success("题目已更新（本地缓存）");
+      await questionsApi.update(editingId.value, payload);
+      ElMessage.success("题目已更新");
     } else {
-      const newQuestion: Question = {
-        id: Date.now(),
-        createdBy: 0,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        ...payload,
-      } as Question;
-      questions.value.push(newQuestion);
-      ElMessage.success("题目已保存（本地缓存）");
+      await questionsApi.create(payload);
+      ElMessage.success("题目已保存到题库");
     }
-    saveToStorage(questions.value);
     showForm.value = false;
     editingId.value = null;
     formData.value = getEmptyForm();
-  } catch {
-    ElMessage.error("保存失败，请稍后重试");
+    await loadQuestions();
+  } catch (err: any) {
+    ElMessage.error("保存失败: " + (err?.response?.data?.error || err?.message || "未知错误"));
   } finally {
     saving.value = false;
   }
@@ -490,21 +435,8 @@ const handleDelete = async (id: number) => {
       cancelButtonText: "取消",
       type: "warning",
     });
-
-    // Always try server delete first
-    try {
-      await questionsApi.delete(id);
-      ElMessage.success("题目已删除");
-    } catch (err: any) {
-      console.error("[QuestionBank] API delete failed:", err?.response?.status, err?.response?.data || err?.message);
-      ElMessage.error("删除失败: " + (err?.response?.data?.error || err?.message || "未知错误"));
-      return;
-    }
-
-    // Sync: remove from local state and localStorage
-    questions.value = questions.value.filter((q) => q.id !== id);
-    saveToStorage(questions.value);
-    // Re-fetch from server to ensure consistency
+    await questionsApi.delete(id);
+    ElMessage.success("题目已删除");
     await loadQuestions();
   } catch {
     // cancelled
