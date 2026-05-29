@@ -2,8 +2,66 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users, questions, exams, examRecords, practiceRecords } from "../drizzle/schema";
 import { ENV } from './_core/env';
+import { readdirSync, readFileSync, existsSync } from "fs";
+import { join } from "path";
+import mysql2 from "mysql2/promise";
 
 let _db: ReturnType<typeof drizzle> | null = null;
+
+// Auto-run migrations on startup (dev mode only)
+export async function runMigrationsIfNeeded(): Promise<void> {
+  if (!process.env.DATABASE_URL) return;
+
+  const migrationsDir = join(import.meta.dirname, "..", "drizzle");
+  if (!existsSync(migrationsDir)) {
+    console.log("[Migrations] No drizzle directory found, skipping");
+    return;
+  }
+
+  try {
+    // Parse mysql://user:password@host:port/database
+    const match = process.env.DATABASE_URL.match(/^mysql:\/\/([^:]*):([^@]*)@([^:]+)(?::(\d+))?\/?(\S+)?$/);
+    if (!match) { console.warn("[Migrations] Cannot parse DATABASE_URL"); return; }
+    const [, user, pass, host, port, dbName] = match;
+    const baseUrl = `mysql://${user}:${pass}@${host}${port ? ':' + port : ''}`;
+
+    // First connect without database to create it if needed
+    if (dbName) {
+      const baseConn = await mysql2.createConnection(baseUrl);
+      await baseConn.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+      await baseConn.end();
+      console.log(`[Migrations] Database '${dbName}' ready`);
+    }
+
+    const conn = await mysql2.createConnection(process.env.DATABASE_URL);
+    const [tables] = await conn.query("SHOW TABLES LIKE 'users'");
+    if ((tables as any[]).length > 0) {
+      console.log("[Migrations] Tables already exist, skipping");
+      await conn.end();
+      return;
+    }
+
+    console.log("[Migrations] First run detected, running migrations...");
+    const files = readdirSync(migrationsDir)
+      .filter(f => f.endsWith(".sql"))
+      .sort();
+
+    for (const file of files) {
+      const sql = readFileSync(join(migrationsDir, file), "utf-8");
+      console.log(`[Migrations] Executing ${file}...`);
+      const statements = sql.split("--> statement-breakpoint");
+      for (const stmt of statements) {
+        const trimmed = stmt.trim();
+        if (trimmed) await conn.query(trimmed);
+      }
+    }
+
+    console.log("[Migrations] All migrations applied successfully");
+    await conn.end();
+  } catch (error) {
+    console.warn("[Migrations] Migration failed:", error);
+  }
+}
 
 // Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {

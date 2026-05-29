@@ -5,7 +5,7 @@ import net from "net";
 import { registerOAuthRoutes } from "./oauth";
 import { createApiRouter } from "../routes";
 import { serveStatic, setupVite } from "./vite";
-import { checkDbConnection } from "../db";
+import { checkDbConnection, runMigrationsIfNeeded } from "../db";
 
 const isProduction = process.env.NODE_ENV === "production";
 
@@ -29,6 +29,7 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
+  await runMigrationsIfNeeded();
   await checkDbConnection();
 
   const app = express();

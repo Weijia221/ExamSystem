@@ -4,6 +4,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "predev": "node -e \"const{existsSync,copyFileSync}=require('fs');if(!existsSync('.env')){copyFileSync('.env.example','.env');console.log('[setup] .env created from .env.example, please edit it with your settings')}\"",
     "dev": "cross-env NODE_ENV=development tsx watch server/_core/index.ts",
     "tunnel": "lt --port 3000",
     "build": "vite build && esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
@@ -11,7 +12,9 @@
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",
-    "db:push": "drizzle-kit generate && drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit generate && drizzle-kit migrate",
+    "setup": "pnpm install && pnpm db:migrate"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
