@@ -262,7 +262,7 @@
                 <button
                   v-for="(_, idx) in questions"
                   :key="idx"
-                  class="aspect-square rounded-lg font-medium transition-all text-sm"
+                  class="aspect-square rounded-lg font-medium transition-all text-sm cursor-pointer"
                   :style="{
                     background: idx === currentQuestion
                       ? '#f9a8d4'

@@ -28,7 +28,7 @@
             <button
               v-for="item in menuItems"
               :key="item.id"
-              class="w-full text-left px-4 py-3 rounded-xl transition-all duration-300"
+              class="w-full text-left px-4 py-3 rounded-xl transition-all duration-300 cursor-pointer"
               :style="
                 activeTab === item.id
                   ? 'background: linear-gradient(135deg, #ec4899, #db2777); color: white; box-shadow: 0 4px 12px rgba(236,72,153,0.3)'
@@ -547,3 +547,10 @@ const handleLogout = async () => {
 
 onMounted(loadData);
 </script>
+
+<style scoped>
+button:not([style*="linear-gradient"]):hover {
+  background: rgba(236, 72, 153, 0.1) !important;
+  border-color: #ec4899 !important;
+}
+</style>
