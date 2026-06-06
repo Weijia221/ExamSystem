@@ -6,7 +6,7 @@
       style="border-color: var(--color-border); background: rgba(255,255,255,0.8)"
     >
       <div class="container flex items-center justify-between h-16">
-        <el-button text @click="$router.push('/teacher/dashboard')">
+        <el-button text @click="$router.push(authStore.isAdmin ? '/admin/dashboard' : '/teacher/dashboard')">
           <el-icon class="mr-1"><ArrowLeft /></el-icon>
           返回
         </el-button>
@@ -280,8 +280,10 @@ import { ref, computed, onMounted } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { ArrowLeft, Plus, Loading, Document } from "@element-plus/icons-vue";
 import { questionsApi } from "../api";
+import { useAuthStore } from "../stores/auth";
 import type { Question, QuestionType, Difficulty } from "../types";
 
+const authStore = useAuthStore();
 const OPTION_KEYS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 interface OptionItem {
