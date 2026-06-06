@@ -178,59 +178,81 @@
         <el-button type="primary" @click="openNewForm">创建第一道题目</el-button>
       </div>
 
-      <!-- Question List -->
-      <div v-else class="space-y-4">
-        <div
-          v-for="(question, index) in questions"
-          :key="question.id"
-          class="card-elegant hover:shadow-lg transition-shadow"
-        >
-          <div class="flex items-start justify-between">
-            <div class="flex-1">
-              <div class="flex items-center gap-3 mb-2 flex-wrap">
-                <span class="text-sm font-semibold" style="color: #f9a8d4">{{ index + 1 }}</span>
-                <el-tag size="small" effect="plain">{{ getTypeLabel(question.type) }}</el-tag>
-                <el-tag
-                  size="small"
-                  :type="question.difficulty === 'easy' ? 'success' : question.difficulty === 'hard' ? 'danger' : 'warning'"
-                  effect="plain"
-                >
-                  {{ getDifficultyLabel(question.difficulty) }}
-                </el-tag>
+      <!-- Type Categories -->
+      <template v-else-if="!selectedType">
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div
+            v-for="item in typeCategories"
+            :key="item.type"
+            class="card-elegant hover:shadow-lg transition-shadow cursor-pointer text-center"
+            @click="selectedType = item.type"
+          >
+            <h3 class="font-semibold text-lg">{{ item.label }}</h3>
+            <p class="text-sm mt-1" style="color: var(--color-text-secondary)">{{ item.count }} 道题</p>
+          </div>
+        </div>
+      </template>
+
+      <!-- Questions in selected type -->
+      <template v-else>
+        <div class="mb-4">
+          <el-button text @click="selectedType = ''">
+            <el-icon class="mr-1"><ArrowLeft /></el-icon>返回分类
+          </el-button>
+          <h2 class="text-2xl font-bold mt-2">{{ getTypeLabel(selectedType) }}</h2>
+          <p class="text-sm" style="color: var(--color-text-secondary)">{{ filteredQuestions.length }} 道题目</p>
+        </div>
+
+        <div class="space-y-4">
+          <div
+            v-for="(question, index) in filteredQuestions"
+            :key="question.id"
+            class="card-elegant hover:shadow-lg transition-shadow"
+          >
+            <div class="flex items-start justify-between">
+              <div class="flex-1">
+                <div class="flex items-center gap-3 mb-2 flex-wrap">
+                  <span class="text-sm font-semibold" style="color: #f9a8d4">{{ index + 1 }}</span>
+                  <el-tag
+                    size="small"
+                    :type="question.difficulty === 'easy' ? 'success' : question.difficulty === 'hard' ? 'danger' : 'warning'"
+                    effect="plain"
+                  >
+                    {{ getDifficultyLabel(question.difficulty) }}
+                  </el-tag>
+                  <span v-if="question.category" class="text-xs" style="color: var(--color-text-secondary)">{{ question.category }}</span>
+                </div>
+                <p class="font-medium mb-2">{{ question.title }}</p>
+                <div v-if="question.options && Object.keys(question.options).length > 0" class="text-sm space-y-1 mb-2">
+                  <p
+                    v-for="(text, key) in question.options"
+                    :key="key"
+                    :style="{ color: question.correctAnswer.split(',').includes(String(key)) ? '#f9a8d4' : 'var(--color-text-secondary)', fontWeight: question.correctAnswer.split(',').includes(String(key)) ? 500 : 400 }"
+                  >
+                    {{ key }}. {{ text }}
+                    <span v-if="question.correctAnswer.split(',').includes(String(key))">（正确）</span>
+                  </p>
+                </div>
+                <div v-if="question.type === 'fillBlank'" class="text-sm mb-2" style="color: var(--color-text-secondary)">
+                  参考答案: {{ question.correctAnswer }}
+                </div>
+                <div v-if="question.type === 'essay'" class="text-sm mb-2" style="color: var(--color-text-secondary)">
+                  <p>参考答案: {{ question.correctAnswer }}</p>
+                  <p v-if="question.gradingRubric">评分标准: {{ question.gradingRubric }}</p>
+                </div>
               </div>
-              <p class="font-medium mb-2">{{ question.title }}</p>
-              <div v-if="question.options && Object.keys(question.options).length > 0" class="text-sm space-y-1 mb-2">
-                <p
-                  v-for="(text, key) in question.options"
-                  :key="key"
-                  :style="{ color: question.correctAnswer.split(',').includes(String(key)) ? '#f9a8d4' : 'var(--color-text-secondary)', fontWeight: question.correctAnswer.split(',').includes(String(key)) ? 500 : 400 }"
-                >
-                  {{ key }}. {{ text }}
-                  <span v-if="question.correctAnswer.split(',').includes(String(key))">（正确）</span>
-                </p>
+              <div class="flex gap-2 ml-4 shrink-0">
+                <el-button size="small" type="primary" text @click="handleEdit(question)">
+                  编辑
+                </el-button>
+                <el-button size="small" type="danger" text @click="handleDelete(question.id)">
+                  删除
+                </el-button>
               </div>
-              <div v-if="question.type === 'fillBlank'" class="text-sm mb-2" style="color: var(--color-text-secondary)">
-                参考答案: {{ question.correctAnswer }}
-              </div>
-              <div v-if="question.type === 'essay'" class="text-sm mb-2" style="color: var(--color-text-secondary)">
-                <p>参考答案: {{ question.correctAnswer }}</p>
-                <p v-if="question.gradingRubric">评分标准: {{ question.gradingRubric }}</p>
-              </div>
-              <p v-if="question.category" class="text-sm" style="color: var(--color-text-secondary)">
-                分类: {{ question.category }}
-              </p>
-            </div>
-            <div class="flex gap-2 ml-4 shrink-0">
-              <el-button size="small" type="primary" text @click="handleEdit(question)">
-                编辑
-              </el-button>
-              <el-button size="small" type="danger" text @click="handleDelete(question.id)">
-                删除
-              </el-button>
             </div>
           </div>
         </div>
-      </div>
+      </template>
 
       <!-- Stats -->
       <div v-if="questions.length > 0" class="mt-8 p-6 rounded-xl border" style="background: rgba(249,168,212,0.05); border-color: rgba(249,168,212,0.2)">
@@ -285,6 +307,7 @@ const loading = ref(true);
 const saving = ref(false);
 const showForm = ref(false);
 const editingId = ref<number | null>(null);
+const selectedType = ref("");
 
 const getEmptyForm = (type: QuestionType = "single"): FormData => ({
   type,
@@ -310,6 +333,27 @@ const getEmptyForm = (type: QuestionType = "single"): FormData => ({
 });
 
 const formData = ref<FormData>(getEmptyForm());
+
+// 题型分类
+const typeCategories = computed(() => {
+  const types = [
+    { type: "single", label: "单选题" },
+    { type: "multiple", label: "多选题" },
+    { type: "trueFalse", label: "判断题" },
+    { type: "fillBlank", label: "填空题" },
+    { type: "essay", label: "问答题" },
+  ];
+  return types.map(t => ({
+    ...t,
+    count: questions.value.filter(q => q.type === t.type).length,
+  })).filter(t => t.count > 0);
+});
+
+// 当前题型下的题目
+const filteredQuestions = computed(() => {
+  if (!selectedType.value) return questions.value;
+  return questions.value.filter(q => q.type === selectedType.value);
+});
 
 // Computed array that bridges el-checkbox-group (needs array) with correctAnswer (comma-separated string)
 const multipleAnswers = computed({
