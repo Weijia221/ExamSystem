@@ -243,6 +243,7 @@ const typeLabels: Record<string, string> = {
   multiple: "多选题",
   trueFalse: "判断题",
   fillBlank: "填空题",
+  essay: "问答题",
 };
 
 const difficultyLabels: Record<string, string> = {

@@ -37,6 +37,7 @@
               <el-option value="multiple" label="多选题" />
               <el-option value="trueFalse" label="判断题" />
               <el-option value="fillBlank" label="填空题" />
+              <el-option value="essay" label="问答题" />
             </el-select>
           </el-form-item>
 
@@ -111,6 +112,24 @@
             <el-input
               v-model="formData.fillBlankAnswer"
               placeholder="多个空用 | 分隔，如：答案1|答案2"
+            />
+          </el-form-item>
+
+          <!-- Essay Answer & Rubric -->
+          <el-form-item v-if="formData.type === 'essay'" label="参考答案">
+            <el-input
+              v-model="formData.essayAnswer"
+              type="textarea"
+              :rows="4"
+              placeholder="输入问答题的参考答案..."
+            />
+          </el-form-item>
+          <el-form-item v-if="formData.type === 'essay'" label="AI 评分标准（选填）">
+            <el-input
+              v-model="formData.gradingRubric"
+              type="textarea"
+              :rows="3"
+              placeholder="输入评分标准，AI 将根据此标准评分。如：满分10分，观点正确4分，论述清晰3分，举例恰当3分"
             />
           </el-form-item>
 
@@ -193,6 +212,10 @@
               <div v-if="question.type === 'fillBlank'" class="text-sm mb-2" style="color: var(--color-text-secondary)">
                 参考答案: {{ question.correctAnswer }}
               </div>
+              <div v-if="question.type === 'essay'" class="text-sm mb-2" style="color: var(--color-text-secondary)">
+                <p>参考答案: {{ question.correctAnswer }}</p>
+                <p v-if="question.gradingRubric">评分标准: {{ question.gradingRubric }}</p>
+              </div>
               <p v-if="question.category" class="text-sm" style="color: var(--color-text-secondary)">
                 分类: {{ question.category }}
               </p>
@@ -253,6 +276,8 @@ interface FormData {
   correctAnswer: string;
   explanation: string;
   fillBlankAnswer: string;
+  essayAnswer: string;
+  gradingRubric: string;
 }
 
 const questions = ref<Question[]>([]);
@@ -280,6 +305,8 @@ const getEmptyForm = (type: QuestionType = "single"): FormData => ({
   correctAnswer: "",
   explanation: "",
   fillBlankAnswer: "",
+  essayAnswer: "",
+  gradingRubric: "",
 });
 
 const formData = ref<FormData>(getEmptyForm());
@@ -294,8 +321,10 @@ const needsOptions = computed(() =>
   formData.value.type === "single" || formData.value.type === "multiple" || formData.value.type === "trueFalse"
 );
 
+const needsEssayFields = computed(() => formData.value.type === "essay");
+
 const typeLabels: Record<string, string> = {
-  single: "单选题", multiple: "多选题", trueFalse: "判断题", fillBlank: "填空题",
+  single: "单选题", multiple: "多选题", trueFalse: "判断题", fillBlank: "填空题", essay: "问答题",
 };
 const difficultyLabels: Record<string, string> = {
   easy: "简单", medium: "中等", hard: "困难",
@@ -356,6 +385,13 @@ const validateForm = (): boolean => {
     }
     return true;
   }
+  if (formData.value.type === "essay") {
+    if (!formData.value.essayAnswer.trim()) {
+      ElMessage.warning("请输入问答题参考答案");
+      return false;
+    }
+    return true;
+  }
   const emptyOption = formData.value.options.find((o) => !o.text.trim());
   if (emptyOption) {
     ElMessage.warning(`请填写选项 ${emptyOption.key} 的内容`);
@@ -374,19 +410,24 @@ const handleSave = async () => {
 
   try {
     const f = formData.value;
-    const options = f.type === "fillBlank"
+    const options = (f.type === "fillBlank" || f.type === "essay")
       ? undefined
       : Object.fromEntries(f.options.map((o) => [o.key, o.text]));
+
+    const correctAnswer = f.type === "fillBlank" ? f.fillBlankAnswer.trim()
+      : f.type === "essay" ? f.essayAnswer.trim()
+      : f.correctAnswer;
 
     const payload = {
       type: f.type,
       title: f.title.trim(),
       options,
-      correctAnswer: f.type === "fillBlank" ? f.fillBlankAnswer.trim() : f.correctAnswer,
+      correctAnswer,
       explanation: f.explanation || undefined,
       difficulty: f.difficulty,
       category: f.category || undefined,
       points: 1,
+      gradingRubric: f.type === "essay" && f.gradingRubric.trim() ? f.gradingRubric.trim() : undefined,
     };
 
     if (editingId.value) {
@@ -421,8 +462,10 @@ const handleEdit = (question: Question) => {
     difficulty: question.difficulty,
     category: question.category ?? "",
     options: options.length > 0 ? options : getEmptyForm(question.type).options,
-    correctAnswer: question.type === "fillBlank" ? "" : question.correctAnswer,
+    correctAnswer: (question.type === "fillBlank" || question.type === "essay") ? "" : question.correctAnswer,
     fillBlankAnswer: question.type === "fillBlank" ? question.correctAnswer : "",
+    essayAnswer: question.type === "essay" ? question.correctAnswer : "",
+    gradingRubric: question.gradingRubric ?? "",
     explanation: question.explanation ?? "",
   };
   showForm.value = true;

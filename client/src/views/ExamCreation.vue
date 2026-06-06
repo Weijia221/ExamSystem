@@ -216,7 +216,7 @@ interface SelectedQuestion {
 }
 
 const typeLabels: Record<string, string> = {
-  single: "单选题", multiple: "多选题", trueFalse: "判断题", fillBlank: "填空题",
+  single: "单选题", multiple: "多选题", trueFalse: "判断题", fillBlank: "填空题", essay: "问答题",
 };
 const getTypeLabel = (t: string) => typeLabels[t] ?? t;
 

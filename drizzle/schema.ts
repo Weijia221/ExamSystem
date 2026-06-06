@@ -36,11 +36,12 @@ export type InsertUser = typeof users.$inferInsert;
 export const questions = mysqlTable("questions", {
   id: int("id").autoincrement().primaryKey(),
   createdBy: int("createdBy").notNull(), // Teacher who created this question
-  type: mysqlEnum("type", ["single", "multiple", "trueFalse", "fillBlank"]).notNull(),
+  type: mysqlEnum("type", ["single", "multiple", "trueFalse", "fillBlank", "essay"]).notNull(),
   title: text("title").notNull(), // Question content
   options: json("options"), // For single/multiple/trueFalse: {A: "...", B: "...", ...}
-  correctAnswer: text("correctAnswer").notNull(), // For single: "A", multiple: "A,B", trueFalse: "true"/"false", fillBlank: "answer1|answer2"
+  correctAnswer: text("correctAnswer").notNull(), // For single: "A", multiple: "A,B", trueFalse: "true"/"false", fillBlank: "answer1|answer2", essay: reference answer
   explanation: text("explanation"), // Answer explanation
+  gradingRubric: text("gradingRubric"), // For essay: AI grading criteria/rubric
   difficulty: mysqlEnum("difficulty", ["easy", "medium", "hard"]).default("medium"),
   category: varchar("category", { length: 100 }), // Question category for organization
   points: decimal("points", { precision: 5, scale: 2 }).default("1"), // Default points
@@ -121,6 +122,8 @@ export const studentAnswers = mysqlTable("studentAnswers", {
   studentAnswer: text("studentAnswer").notNull(), // Student's answer
   isCorrect: boolean("isCorrect"), // Whether answer is correct
   earnedPoints: decimal("earnedPoints", { precision: 5, scale: 2 }), // Points earned for this question
+  aiScore: decimal("aiScore", { precision: 5, scale: 2 }), // AI-assigned score for essay questions
+  aiComment: text("aiComment"), // AI grading comment for essay questions
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
