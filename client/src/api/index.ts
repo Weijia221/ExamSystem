@@ -43,6 +43,7 @@ export const questionsApi = {
     difficulty?: string;
     category?: string;
     points?: number;
+    gradingRubric?: string;
   }) => api.post<{ success: boolean; id: number }>("/questions", data).then((r) => r.data),
   update: (
     id: number,
@@ -54,6 +55,7 @@ export const questionsApi = {
       difficulty: string;
       category: string;
       points: number;
+      gradingRubric: string;
     }>
   ) => api.put<{ success: boolean }>(`/questions/${id}`, data).then((r) => r.data),
   delete: (id: number) => api.delete<{ success: boolean }>(`/questions/${id}`).then((r) => r.data),
@@ -90,7 +92,7 @@ export const studentExamsApi = {
     data: { answers: Record<number, string>; startTime: string }
   ) =>
     api
-      .post<{ success: boolean; recordId: number; score: number; totalPoints: number }>(
+      .post<{ success: boolean; recordId: number; score: number; totalPoints: number; hasEssay: boolean }>(
         `/student/exams/${id}/submit`,
         data
       )
@@ -120,6 +122,9 @@ export interface ScoreDetail {
     isCorrect: boolean | null;
     earnedPoints: number;
     totalPoints: number;
+    gradingRubric: string | null;
+    aiScore: number | null;
+    aiComment: string | null;
   }[];
 }
 
@@ -127,6 +132,71 @@ export const scoresApi = {
   teacher: () => api.get<TeacherScore[]>("/teacher/scores").then((r) => r.data),
   student: () => api.get<StudentScore[]>("/student/scores").then((r) => r.data),
   detail: (recordId: number) => api.get<ScoreDetail>(`/scores/${recordId}/detail`).then((r) => r.data),
+};
+
+// AI Chat (SSE)
+export const aiApi = {
+  chat: async function* (
+    message: string,
+    context?: { questionTitle?: string }
+  ): AsyncGenerator<string> {
+    const role = localStorage.getItem("loginRole");
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (role) headers["x-login-role"] = role;
+
+    const response = await fetch("/api/ai/chat", {
+      method: "POST",
+      headers,
+      credentials: "include",
+      body: JSON.stringify({ message, context }),
+    });
+
+    if (!response.ok) {
+      throw new Error("AI 服务调用失败");
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) return;
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith("data: ")) continue;
+        const data = trimmed.slice(6);
+        if (data === "[DONE]") return;
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.content) yield parsed.content;
+        } catch {
+          // skip
+        }
+      }
+    }
+  },
+};
+
+// Teacher AI grading
+export const teacherApi = {
+  aiGrade: (recordId: number, questionId: number) =>
+    api.post<{ aiScore: number; aiComment: string }>("/teacher/ai-grade", { recordId, questionId }).then((r) => r.data),
+  batchAiGrade: (recordId: number) =>
+    api.post<{ success: boolean; graded: number; results: Array<{ questionId: number; aiScore: number; aiComment: string }> }>("/teacher/batch-ai-grade", { recordId }).then((r) => r.data),
+  confirmGrade: (recordId: number, questionId: number, earnedPoints: number) =>
+    api.put<{ success: boolean; score: number }>("/teacher/confirm-grade", { recordId, questionId, earnedPoints }).then((r) => r.data),
+  confirmAll: (recordId: number) =>
+    api.put<{ success: boolean; score: number }>(`/teacher/confirm-all/${recordId}`).then((r) => r.data),
 };
 
 // Admin

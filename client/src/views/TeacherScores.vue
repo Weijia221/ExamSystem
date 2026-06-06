@@ -38,6 +38,14 @@
             <el-table-column label="参考人数" width="100">
               <template #default="{ row }">{{ row.count }} 人</template>
             </el-table-column>
+            <el-table-column label="待批阅" width="100">
+              <template #default="{ row }">
+                <el-tag v-if="row.pending > 0" type="warning" effect="plain" size="small">
+                  {{ row.pending }} 人
+                </el-tag>
+                <span v-else style="color: var(--color-text-secondary)">-</span>
+              </template>
+            </el-table-column>
             <el-table-column label="操作" width="100">
               <template #default="{ row }">
                 <el-button size="small" type="primary" text @click="selectedExam = row.examTitle">查看</el-button>
@@ -62,20 +70,25 @@
             <el-table-column label="学生" prop="studentName" width="120" show-overflow-tooltip />
             <el-table-column label="得分" width="140">
               <template #default="{ row }">
-                <span :style="{ color: row.score >= (row.totalPoints * 0.6) ? '#10b981' : '#ef4444', fontWeight: 600 }">
-                  {{ row.score }}
-                </span>
-                <span style="color: var(--color-text-secondary)"> / {{ row.totalPoints }}</span>
+                <template v-if="row.status === 'submitted'">
+                  <span style="color: #f59e0b; font-weight: 600">待批改</span>
+                </template>
+                <template v-else>
+                  <span :style="{ color: row.score >= (row.totalPoints * 0.6) ? '#10b981' : '#ef4444', fontWeight: 600 }">
+                    {{ row.score }}
+                  </span>
+                  <span style="color: var(--color-text-secondary)"> / {{ row.totalPoints }}</span>
+                </template>
               </template>
             </el-table-column>
-            <el-table-column label="状态" width="100">
+            <el-table-column label="状态" width="120">
               <template #default="{ row }">
                 <el-tag
                   :type="row.status === 'graded' ? 'success' : 'warning'"
                   effect="plain"
                   size="small"
                 >
-                  {{ row.status === "graded" ? "已批改" : "已提交" }}
+                  {{ row.status === "graded" ? "已批改" : "待批改" }}
                 </el-tag>
               </template>
             </el-table-column>
@@ -106,19 +119,44 @@
         </div>
         <div v-else-if="detailData" class="space-y-4">
           <div class="flex justify-between items-center p-4 rounded-xl" style="background: var(--color-muted)">
-            <span class="text-sm" style="color: var(--color-text-secondary)">总分</span>
+            <div>
+              <span class="text-sm" style="color: var(--color-text-secondary)">总分</span>
+              <el-tag v-if="detailData.status === 'submitted'" size="small" type="warning" class="ml-2">待批改</el-tag>
+              <el-tag v-else size="small" type="success" class="ml-2">已批改</el-tag>
+            </div>
             <span class="text-2xl font-bold" :style="{ color: detailData.score >= detailData.passingScore ? '#22c55e' : '#ef4444' }">
               {{ detailData.score }} / {{ detailData.totalPoints }}
             </span>
           </div>
+
+          <!-- Batch AI Grade Button -->
+          <div v-if="detailData.questions.some(q => q.type === 'essay')" class="flex gap-2">
+            <el-button
+              type="primary"
+              size="small"
+              :loading="aiGrading"
+              @click="batchAiGrade"
+            >
+              🤖 批量AI评分
+            </el-button>
+            <el-button
+              v-if="detailData.status === 'submitted'"
+              type="success"
+              size="small"
+              @click="confirmAllGrades"
+            >
+              ✓ 确认所有评分
+            </el-button>
+          </div>
+
           <div class="space-y-3">
             <div
               v-for="(q, idx) in detailData.questions"
               :key="q.questionId"
               class="p-4 rounded-xl border"
               :style="{
-                borderColor: q.isCorrect ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)',
-                background: q.isCorrect ? 'rgba(34,197,94,0.03)' : 'rgba(239,68,68,0.03)',
+                borderColor: q.type === 'essay' && q.isCorrect === null ? 'rgba(249,168,212,0.3)' : q.isCorrect ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)',
+                background: q.type === 'essay' && q.isCorrect === null ? 'rgba(249,168,212,0.03)' : q.isCorrect ? 'rgba(34,197,94,0.03)' : 'rgba(239,68,68,0.03)',
               }"
             >
               <div class="flex items-center justify-between mb-2">
@@ -126,12 +164,110 @@
                   <span class="text-sm font-semibold" style="color: #f9a8d4">{{ idx + 1 }}</span>
                   <el-tag size="small" effect="plain">{{ getTypeLabel(q.type) }}</el-tag>
                 </div>
-                <span class="text-sm font-medium" :style="{ color: q.isCorrect ? '#22c55e' : '#ef4444' }">
-                  {{ q.earnedPoints }} / {{ q.totalPoints }} 分
-                </span>
+                <div class="flex items-center gap-2">
+                  <!-- Essay: editable points -->
+                  <template v-if="q.type === 'essay'">
+                    <template v-if="showEditInput[q.questionId]">
+                      <el-input-number
+                        v-model="editingPoints[q.questionId]"
+                        :min="0"
+                        :max="q.totalPoints"
+                        :step="0.5"
+                        size="small"
+                        style="width: 100px"
+                      />
+                      <el-button size="small" type="success" text @click="confirmEditPoints(q.questionId)">确认</el-button>
+                      <el-button size="small" text @click="showEditInput[q.questionId] = false">取消</el-button>
+                    </template>
+                    <template v-else>
+                      <span
+                        class="text-sm font-medium cursor-pointer hover:underline"
+                        style="color: #f9a8d4"
+                        @click="startEditPoints(q.questionId, q.earnedPoints)"
+                      >
+                        {{ q.earnedPoints }} / {{ q.totalPoints }} 分
+                      </span>
+                    </template>
+                  </template>
+                  <!-- Non-essay: static points -->
+                  <span v-else class="text-sm font-medium" :style="{ color: q.isCorrect ? '#22c55e' : '#ef4444' }">
+                    {{ q.earnedPoints }} / {{ q.totalPoints }} 分
+                  </span>
+                </div>
               </div>
               <p class="text-sm font-medium mb-2">{{ q.title }}</p>
-              <div class="text-xs space-y-1" style="color: var(--color-text-secondary)">
+
+              <!-- Essay specific content -->
+              <div v-if="q.type === 'essay'" class="space-y-2 mb-2">
+                <div class="p-3 rounded-lg text-xs" style="background: rgba(249,168,212,0.05)">
+                  <p class="font-medium mb-1" style="color: var(--color-text-secondary)">学生答案：</p>
+                  <p class="whitespace-pre-wrap">{{ q.studentAnswer || '未作答' }}</p>
+                </div>
+                <div class="p-3 rounded-lg text-xs" style="background: rgba(34,197,94,0.05)">
+                  <p class="font-medium mb-1" style="color: var(--color-text-secondary)">参考答案：</p>
+                  <p class="whitespace-pre-wrap">{{ q.correctAnswer }}</p>
+                </div>
+                <div v-if="q.gradingRubric" class="p-3 rounded-lg text-xs" style="background: rgba(59,130,246,0.05)">
+                  <p class="font-medium mb-1" style="color: var(--color-text-secondary)">评分标准：</p>
+                  <p class="whitespace-pre-wrap">{{ q.gradingRubric }}</p>
+                </div>
+                <!-- AI Score & Comment -->
+                <div v-if="q.aiScore !== null" class="p-3 rounded-lg" style="background: rgba(168,85,247,0.05)">
+                  <div class="flex items-center gap-2 mb-1">
+                    <span class="text-xs font-medium" style="color: #a855f7">🤖 AI 评分：</span>
+                    <span class="text-sm font-bold" style="color: #a855f7">{{ q.aiScore }} 分</span>
+                  </div>
+                  <p class="text-xs" style="color: var(--color-text-secondary)">{{ q.aiComment }}</p>
+                </div>
+                <!-- Manual & AI Grade Buttons -->
+                <div class="flex gap-2 flex-wrap">
+                  <el-button
+                    size="small"
+                    type="warning"
+                    plain
+                    @click="startEditPoints(q.questionId, q.earnedPoints)"
+                  >
+                    ✏️ 手动评分
+                  </el-button>
+                  <el-button
+                    v-if="q.aiScore === null"
+                    size="small"
+                    type="primary"
+                    plain
+                    :loading="aiGrading"
+                    @click="aiGradeQuestion(q.questionId)"
+                  >
+                    🤖 AI 评分
+                  </el-button>
+                  <el-button
+                    v-if="q.aiScore !== null"
+                    size="small"
+                    type="success"
+                    @click="confirmEditPoints(q.questionId)"
+                  >
+                    ✓ 确认评分
+                  </el-button>
+                </div>
+                <!-- Manual grading input -->
+                <div v-if="showEditInput[q.questionId]" class="p-3 rounded-lg border" style="border-color: #f59e0b; background: rgba(245,158,11,0.03)">
+                  <p class="text-xs font-medium mb-2" style="color: #f59e0b">输入分数（满分 {{ q.totalPoints }} 分）：</p>
+                  <div class="flex items-center gap-2">
+                    <el-input-number
+                      v-model="editingPoints[q.questionId]"
+                      :min="0"
+                      :max="q.totalPoints"
+                      :step="0.5"
+                      size="small"
+                      style="width: 120px"
+                    />
+                    <el-button size="small" type="success" @click="confirmEditPoints(q.questionId)">确认</el-button>
+                    <el-button size="small" @click="showEditInput[q.questionId] = false">取消</el-button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Non-essay: standard display -->
+              <div v-else class="text-xs space-y-1" style="color: var(--color-text-secondary)">
                 <p>学生答案: <span :class="q.isCorrect ? 'text-green-600' : 'text-red-600'">{{ formatAnswer(q.studentAnswer, q.options, q.type) || '未作答' }}</span></p>
                 <p>正确答案: <span class="text-green-600">{{ formatAnswer(q.correctAnswer, q.options, q.type) }}</span></p>
               </div>
@@ -149,7 +285,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { ArrowLeft, Loading, DataAnalysis } from "@element-plus/icons-vue";
-import { scoresApi, type ScoreDetail } from "../api";
+import { ElMessage, ElMessageBox } from "element-plus";
+import { scoresApi, teacherApi, type ScoreDetail } from "../api";
 import type { TeacherScore } from "../types";
 
 const scores = ref<TeacherScore[]>([]);
@@ -164,12 +301,18 @@ const showDetail = computed({
 });
 
 const examList = computed(() => {
-  const map = new Map<string, Set<number>>();
+  const map = new Map<string, { students: Set<number>; pending: number }>();
   for (const s of scores.value) {
-    if (!map.has(s.examTitle)) map.set(s.examTitle, new Set());
-    map.get(s.examTitle)!.add(s.studentId);
+    if (!map.has(s.examTitle)) map.set(s.examTitle, { students: new Set(), pending: 0 });
+    const entry = map.get(s.examTitle)!;
+    entry.students.add(s.studentId);
+    if (s.status === "submitted") entry.pending++;
   }
-  return Array.from(map.entries()).map(([examTitle, students]) => ({ examTitle, count: students.size }));
+  return Array.from(map.entries()).map(([examTitle, data]) => ({
+    examTitle,
+    count: data.students.size,
+    pending: data.pending,
+  }));
 });
 
 const selectedExamScores = computed(() =>
@@ -177,8 +320,13 @@ const selectedExamScores = computed(() =>
 );
 
 const typeLabels: Record<string, string> = {
-  single: "单选题", multiple: "多选题", trueFalse: "判断题", fillBlank: "填空题",
+  single: "单选题", multiple: "多选题", trueFalse: "判断题", fillBlank: "填空题", essay: "问答题",
 };
+
+// AI grading state
+const aiGrading = ref(false);
+const editingPoints = ref<Record<number, number>>({});
+const showEditInput = ref<Record<number, boolean>>({});
 const getTypeLabel = (t: string) => typeLabels[t] ?? t;
 
 const formatAnswer = (answer: string, options: Record<string, string> | null, type: string) => {
@@ -201,6 +349,101 @@ const viewDetail = async (recordId: number) => {
     detailData.value = null;
   } finally {
     detailLoading.value = false;
+  }
+};
+
+// AI 评分单个问答题
+const aiGradeQuestion = async (questionId: number) => {
+  if (!detailData.value) return;
+  aiGrading.value = true;
+  try {
+    const result = await teacherApi.aiGrade(detailData.value.recordId, questionId);
+    // 更新本地数据
+    const q = detailData.value.questions.find((q) => q.questionId === questionId);
+    if (q) {
+      q.aiScore = result.aiScore;
+      q.aiComment = result.aiComment;
+      q.earnedPoints = result.aiScore;
+    }
+    // 更新总分
+    const newTotal = detailData.value.questions.reduce((sum, q) => sum + q.earnedPoints, 0);
+    detailData.value.score = Math.round(newTotal * 10) / 10;
+    ElMessage.success("AI 评分完成");
+  } catch {
+    ElMessage.error("AI 评分失败");
+  } finally {
+    aiGrading.value = false;
+  }
+};
+
+// 批量 AI 评分
+const batchAiGrade = async () => {
+  if (!detailData.value) return;
+  aiGrading.value = true;
+  try {
+    const result = await teacherApi.batchAiGrade(detailData.value.recordId);
+    // 更新本地数据
+    for (const r of result.results) {
+      const q = detailData.value.questions.find((q) => q.questionId === r.questionId);
+      if (q) {
+        q.aiScore = r.aiScore;
+        q.aiComment = r.aiComment;
+        q.earnedPoints = r.aiScore;
+      }
+    }
+    // 更新总分
+    const newTotal = detailData.value.questions.reduce((sum, q) => sum + q.earnedPoints, 0);
+    detailData.value.score = Math.round(newTotal * 10) / 10;
+    ElMessage.success(`批量评分完成，共评 ${result.graded} 题`);
+  } catch {
+    ElMessage.error("批量评分失败");
+  } finally {
+    aiGrading.value = false;
+  }
+};
+
+// 开始编辑分数
+const startEditPoints = (questionId: number, currentPoints: number) => {
+  editingPoints.value[questionId] = currentPoints;
+  showEditInput.value[questionId] = true;
+};
+
+// 确认修改分数
+const confirmEditPoints = async (questionId: number) => {
+  if (!detailData.value) return;
+  const points = editingPoints.value[questionId];
+  if (points === undefined || points < 0) {
+    ElMessage.warning("请输入有效分数");
+    return;
+  }
+
+  try {
+    const result = await teacherApi.confirmGrade(detailData.value.recordId, questionId, points);
+    const q = detailData.value.questions.find((q) => q.questionId === questionId);
+    if (q) {
+      q.earnedPoints = points;
+      q.isCorrect = points > 0;
+    }
+    detailData.value.score = result.score;
+    showEditInput.value[questionId] = false;
+    ElMessage.success("分数已更新");
+  } catch {
+    ElMessage.error("更新失败");
+  }
+};
+
+// 确认所有评分（将 submitted 改为 graded）
+const confirmAllGrades = async () => {
+  if (!detailData.value) return;
+  try {
+    const result = await teacherApi.confirmAll(detailData.value.recordId);
+    detailData.value.status = "graded";
+    detailData.value.score = result.score;
+    ElMessage.success("所有评分已确认");
+    // 刷新列表
+    scores.value = await scoresApi.teacher();
+  } catch {
+    ElMessage.error("确认失败");
   }
 };
 

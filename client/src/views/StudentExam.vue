@@ -3,45 +3,83 @@
     <!-- Submitted Result -->
     <div v-if="submitted" class="min-h-screen flex items-center justify-center p-4">
       <div class="card-elegant max-w-md w-full text-center animate-scale-in">
-        <div class="mb-6">
-          <div
-            class="w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-4"
-            style="background: linear-gradient(135deg, rgba(249,168,212,0.1), rgba(236,72,153,0.1))"
-          >
-            <span class="text-4xl font-black gradient-text">{{ submitResult.score }}</span>
+        <!-- 有问答题：等待教师批阅 -->
+        <template v-if="submitResult.hasEssay">
+          <div class="mb-6">
+            <div
+              class="w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-4"
+              style="background: linear-gradient(135deg, rgba(249,168,212,0.1), rgba(236,72,153,0.1))"
+            >
+              <span class="text-4xl">📝</span>
+            </div>
+            <h1 class="text-2xl font-bold mb-2">考试已提交</h1>
+            <p style="color: var(--color-text-secondary)">试卷中包含问答题，等待教师批阅后公布成绩</p>
           </div>
-          <h1 class="text-2xl font-bold mb-2">考试完成</h1>
-          <p style="color: var(--color-text-secondary)">您的成绩已提交！</p>
-        </div>
 
-        <div class="space-y-3 mb-6 text-left p-4 rounded-xl" style="background: var(--color-muted)">
-          <div class="flex justify-between text-sm">
-            <span style="color: var(--color-text-secondary)">总题数</span>
-            <span class="font-medium">{{ questions.length }}</span>
+          <div class="space-y-3 mb-6 text-left p-4 rounded-xl" style="background: var(--color-muted)">
+            <div class="flex justify-between text-sm">
+              <span style="color: var(--color-text-secondary)">总题数</span>
+              <span class="font-medium">{{ questions.length }}</span>
+            </div>
+            <div class="flex justify-between text-sm">
+              <span style="color: var(--color-text-secondary)">答题数</span>
+              <span class="font-medium">{{ Object.keys(answers).length }}</span>
+            </div>
+            <div class="flex justify-between text-sm">
+              <span style="color: var(--color-text-secondary)">状态</span>
+              <el-tag type="warning" effect="plain">等待教师批阅</el-tag>
+            </div>
+            <div class="flex justify-between text-sm">
+              <span style="color: var(--color-text-secondary)">切屏次数</span>
+              <span class="font-medium" :style="{ color: switchCount >= MAX_SWITCHES ? '#ef4444' : 'inherit' }">
+                {{ switchCount }} / {{ MAX_SWITCHES }}
+              </span>
+            </div>
           </div>
-          <div class="flex justify-between text-sm">
-            <span style="color: var(--color-text-secondary)">答题数</span>
-            <span class="font-medium">{{ Object.keys(answers).length }}</span>
+        </template>
+
+        <!-- 无问答题：直接显示成绩 -->
+        <template v-else>
+          <div class="mb-6">
+            <div
+              class="w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-4"
+              style="background: linear-gradient(135deg, rgba(249,168,212,0.1), rgba(236,72,153,0.1))"
+            >
+              <span class="text-4xl font-black gradient-text">{{ submitResult.score }}</span>
+            </div>
+            <h1 class="text-2xl font-bold mb-2">考试完成</h1>
+            <p style="color: var(--color-text-secondary)">您的成绩已提交！</p>
           </div>
-          <div class="flex justify-between text-sm">
-            <span style="color: var(--color-text-secondary)">得分</span>
-            <span class="font-medium text-lg" style="color: #f9a8d4">
-              {{ submitResult.score }} / {{ submitResult.totalPoints }}
-            </span>
+
+          <div class="space-y-3 mb-6 text-left p-4 rounded-xl" style="background: var(--color-muted)">
+            <div class="flex justify-between text-sm">
+              <span style="color: var(--color-text-secondary)">总题数</span>
+              <span class="font-medium">{{ questions.length }}</span>
+            </div>
+            <div class="flex justify-between text-sm">
+              <span style="color: var(--color-text-secondary)">答题数</span>
+              <span class="font-medium">{{ Object.keys(answers).length }}</span>
+            </div>
+            <div class="flex justify-between text-sm">
+              <span style="color: var(--color-text-secondary)">得分</span>
+              <span class="font-medium text-lg" style="color: #f9a8d4">
+                {{ submitResult.score }} / {{ submitResult.totalPoints }}
+              </span>
+            </div>
+            <div class="flex justify-between text-sm">
+              <span style="color: var(--color-text-secondary)">结果</span>
+              <el-tag :type="submitResult.score >= submitResult.passingScore ? 'success' : 'danger'">
+                {{ submitResult.score >= submitResult.passingScore ? "及格" : "未及格" }}
+              </el-tag>
+            </div>
+            <div class="flex justify-between text-sm">
+              <span style="color: var(--color-text-secondary)">切屏次数</span>
+              <span class="font-medium" :style="{ color: switchCount >= MAX_SWITCHES ? '#ef4444' : 'inherit' }">
+                {{ switchCount }} / {{ MAX_SWITCHES }}
+              </span>
+            </div>
           </div>
-          <div class="flex justify-between text-sm">
-            <span style="color: var(--color-text-secondary)">结果</span>
-            <el-tag :type="submitResult.score >= submitResult.passingScore ? 'success' : 'danger'">
-              {{ submitResult.score >= submitResult.passingScore ? "及格" : "未及格" }}
-            </el-tag>
-          </div>
-          <div class="flex justify-between text-sm">
-            <span style="color: var(--color-text-secondary)">切屏次数</span>
-            <span class="font-medium" :style="{ color: switchCount >= MAX_SWITCHES ? '#ef4444' : 'inherit' }">
-              {{ switchCount }} / {{ MAX_SWITCHES }}
-            </span>
-          </div>
-        </div>
+        </template>
 
         <el-button type="primary" class="w-full" @click="$router.push('/student/dashboard')">
           返回学生中心
@@ -208,6 +246,16 @@
                     size="large"
                   />
                 </div>
+
+                <!-- Essay -->
+                <div v-else-if="questions[currentQuestion].type === 'essay'">
+                  <el-input
+                    v-model="answers[questions[currentQuestion].id]"
+                    type="textarea"
+                    :rows="8"
+                    placeholder="请输入你的回答..."
+                  />
+                </div>
               </div>
 
               <!-- Navigation -->
@@ -326,7 +374,7 @@ const startTime = ref("");
 const timer = ref<ReturnType<typeof setInterval> | null>(null);
 const forbidden = ref(false);
 
-const submitResult = ref({ score: 0, totalPoints: 0, passingScore: 60 });
+const submitResult = ref({ score: 0, totalPoints: 0, passingScore: 60, hasEssay: false });
 
 const isTimeWarning = computed(() => timeLeft.value < 300);
 
@@ -439,18 +487,18 @@ const startDemoExam = () => {
       id: 1, type: "single", title: "什么是在线考试系统？",
       options: { A: "一个用于组织线上考试的平台", B: "一个社交媒体应用", C: "一个文件存储服务", D: "一个视频播放器" },
       correctAnswer: "A", explanation: null, difficulty: "easy", category: null, points: "5",
-      createdBy: 0, createdAt: "", updatedAt: "", order: 1, examPoints: "5",
+      createdBy: 0, createdAt: "", updatedAt: "", order: 1, examPoints: "5", gradingRubric: null,
     },
     {
       id: 2, type: "multiple", title: "以下哪些是在线考试系统的功能？（多选）",
       options: { A: "题库管理", B: "试卷发布", C: "成绩查看", D: "视频编辑" },
       correctAnswer: "A,B,C", explanation: null, difficulty: "medium", category: null, points: "10",
-      createdBy: 0, createdAt: "", updatedAt: "", order: 2, examPoints: "10",
+      createdBy: 0, createdAt: "", updatedAt: "", order: 2, examPoints: "10", gradingRubric: null,
     },
     {
       id: 3, type: "trueFalse", title: "在线考试系统可以帮助教师节省时间。",
       options: { A: "正确", B: "错误" }, correctAnswer: "A", explanation: null, difficulty: "easy", category: null, points: "5",
-      createdBy: 0, createdAt: "", updatedAt: "", order: 3, examPoints: "5",
+      createdBy: 0, createdAt: "", updatedAt: "", order: 3, examPoints: "5", gradingRubric: null,
     },
   ];
   startTime.value = new Date().toISOString();
@@ -471,6 +519,7 @@ const submitExam = async () => {
         score: result.score,
         totalPoints: result.totalPoints,
         passingScore: Number(examInfo.value?.passingScore ?? 60),
+        hasEssay: result.hasEssay,
       };
     } catch {
       // Fall through to demo scoring

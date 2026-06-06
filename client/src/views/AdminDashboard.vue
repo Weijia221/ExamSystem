@@ -265,6 +265,14 @@
                   <el-table-column label="参考人数" width="100">
                     <template #default="{ row }">{{ row.count }} 人</template>
                   </el-table-column>
+                  <el-table-column label="待批阅" width="100">
+                    <template #default="{ row }">
+                      <el-tag v-if="row.pending > 0" type="warning" effect="plain" size="small">
+                        {{ row.pending }} 人
+                      </el-tag>
+                      <span v-else style="color: var(--color-text-secondary)">-</span>
+                    </template>
+                  </el-table-column>
                   <el-table-column label="操作" width="100">
                     <template #default="{ row }">
                       <el-button size="small" type="primary" text @click="selectedExam = row.examTitle">查看</el-button>
@@ -291,10 +299,15 @@
                   <el-table-column label="学生" prop="studentName" width="120" show-overflow-tooltip />
                   <el-table-column label="得分" width="140">
                     <template #default="{ row }">
-                      <span :style="{ color: row.score >= (row.totalPoints * 0.6) ? '#10b981' : '#ef4444', fontWeight: 600 }">
-                        {{ row.score }}
-                      </span>
-                      <span style="color: var(--color-text-secondary)"> / {{ row.totalPoints }}</span>
+                      <template v-if="row.status === 'submitted'">
+                        <span style="color: #f59e0b; font-weight: 600">待批改</span>
+                      </template>
+                      <template v-else>
+                        <span :style="{ color: row.score >= (row.totalPoints * 0.6) ? '#10b981' : '#ef4444', fontWeight: 600 }">
+                          {{ row.score }}
+                        </span>
+                        <span style="color: var(--color-text-secondary)"> / {{ row.totalPoints }}</span>
+                      </template>
                     </template>
                   </el-table-column>
                   <el-table-column label="状态" width="100">
@@ -304,7 +317,7 @@
                         effect="plain"
                         size="small"
                       >
-                        {{ row.status === "graded" ? "已批改" : "已提交" }}
+                        {{ row.status === "graded" ? "已批改" : "未批改" }}
                       </el-tag>
                     </template>
                   </el-table-column>
@@ -371,12 +384,27 @@
                       />
                       <span class="text-xs" style="color: var(--color-text-secondary)">/ {{ q.totalPoints }} 分</span>
                     </div>
-                    <span v-else class="text-sm font-medium" :style="{ color: q.isCorrect ? '#22c55e' : '#ef4444' }">
+                    <span v-else class="text-sm font-medium" :style="{ color: q.type === 'essay' && q.isCorrect === null ? '#f9a8d4' : q.isCorrect ? '#22c55e' : '#ef4444' }">
                       {{ q.earnedPoints }} / {{ q.totalPoints }} 分
                     </span>
                   </div>
                   <p class="text-sm font-medium mb-2">{{ q.title }}</p>
-                  <div class="text-xs space-y-1" style="color: var(--color-text-secondary)">
+                  <!-- Essay specific content -->
+                  <div v-if="q.type === 'essay'" class="space-y-2 mb-2">
+                    <div class="p-3 rounded-lg text-xs" style="background: rgba(249,168,212,0.05)">
+                      <p class="font-medium mb-1" style="color: var(--color-text-secondary)">学生答案：</p>
+                      <p class="whitespace-pre-wrap">{{ q.studentAnswer || '未作答' }}</p>
+                    </div>
+                    <div class="p-3 rounded-lg text-xs" style="background: rgba(34,197,94,0.05)">
+                      <p class="font-medium mb-1" style="color: var(--color-text-secondary)">参考答案：</p>
+                      <p class="whitespace-pre-wrap">{{ q.correctAnswer }}</p>
+                    </div>
+                    <div v-if="q.gradingRubric" class="p-3 rounded-lg text-xs" style="background: rgba(59,130,246,0.05)">
+                      <p class="font-medium mb-1" style="color: var(--color-text-secondary)">评分标准：</p>
+                      <p class="whitespace-pre-wrap">{{ q.gradingRubric }}</p>
+                    </div>
+                  </div>
+                  <div v-else class="text-xs space-y-1" style="color: var(--color-text-secondary)">
                     <p>学生答案: <span :class="q.isCorrect ? 'text-green-600' : 'text-red-600'">{{ formatAnswer(q.studentAnswer, q.options, q.type) || '未作答' }}</span></p>
                     <p>正确答案: <span class="text-green-600">{{ formatAnswer(q.correctAnswer, q.options, q.type) }}</span></p>
                   </div>
@@ -439,12 +467,18 @@ const scoreLoading = ref(false);
 const selectedExam = ref("");
 
 const examList = computed(() => {
-  const map = new Map<string, Set<string>>();
+  const map = new Map<string, { students: Set<string>; pending: number }>();
   for (const s of scores.value) {
-    if (!map.has(s.examTitle)) map.set(s.examTitle, new Set());
-    map.get(s.examTitle)!.add(s.studentName);
+    if (!map.has(s.examTitle)) map.set(s.examTitle, { students: new Set(), pending: 0 });
+    const entry = map.get(s.examTitle)!;
+    entry.students.add(s.studentName);
+    if (s.status === "submitted") entry.pending++;
   }
-  return Array.from(map.entries()).map(([examTitle, students]) => ({ examTitle, count: students.size }));
+  return Array.from(map.entries()).map(([examTitle, data]) => ({
+    examTitle,
+    count: data.students.size,
+    pending: data.pending,
+  }));
 });
 
 const selectedExamScores = computed(() =>
@@ -499,7 +533,7 @@ const saveScore = async () => {
 };
 
 const typeLabels: Record<string, string> = {
-  single: "单选题", multiple: "多选题", trueFalse: "判断题", fillBlank: "填空题",
+  single: "单选题", multiple: "多选题", trueFalse: "判断题", fillBlank: "填空题", essay: "问答题",
 };
 const getTypeLabel = (t: string) => typeLabels[t] ?? t;
 

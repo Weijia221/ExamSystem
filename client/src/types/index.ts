@@ -10,7 +10,7 @@ export interface User {
   lastSignedIn: string;
 }
 
-export type QuestionType = "single" | "multiple" | "trueFalse" | "fillBlank";
+export type QuestionType = "single" | "multiple" | "trueFalse" | "fillBlank" | "essay";
 export type Difficulty = "easy" | "medium" | "hard";
 
 export interface Question {
@@ -24,6 +24,7 @@ export interface Question {
   difficulty: Difficulty;
   category: string | null;
   points: string;
+  gradingRubric: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -100,5 +101,5 @@ export interface StudentScore {
   totalPoints: number;
   duration: number;
   submittedAt: string;
-  status: "passed" | "failed";
+  status: "passed" | "failed" | "pending";
 }

@@ -161,6 +161,16 @@
                     />
                   </div>
 
+                  <!-- Essay -->
+                  <div v-else-if="currentPracticeQ.type === 'essay'">
+                    <el-input
+                      v-model="practiceEssayAnswer"
+                      type="textarea"
+                      :rows="6"
+                      placeholder="请输入你的回答..."
+                    />
+                  </div>
+
                   <div class="mt-6 flex justify-end">
                     <el-button
                       type="primary"
@@ -175,8 +185,20 @@
 
                 <!-- Result (after answering) -->
                 <template v-else>
+                  <!-- Essay result -->
+                  <div v-if="currentPracticeQ.type === 'essay'" class="space-y-3">
+                    <div class="p-4 rounded-xl border-2" style="border-color: #f9a8d4; background: rgba(249,168,212,0.03)">
+                      <p class="text-sm font-medium mb-2" style="color: var(--color-text-secondary)">你的回答：</p>
+                      <p class="text-sm whitespace-pre-wrap">{{ practiceSubmittedAnswer || '未作答' }}</p>
+                    </div>
+                    <div class="p-4 rounded-xl border-2" style="border-color: #22c55e; background: rgba(34,197,94,0.03)">
+                      <p class="text-sm font-medium mb-2" style="color: var(--color-text-secondary)">参考答案：</p>
+                      <p class="text-sm whitespace-pre-wrap">{{ currentPracticeQ.correctAnswer }}</p>
+                    </div>
+                  </div>
+
                   <!-- Show all options with correct/incorrect styling -->
-                  <div v-if="currentPracticeQ.type !== 'fillBlank'" class="space-y-3">
+                  <div v-else-if="currentPracticeQ.type !== 'fillBlank'" class="space-y-3">
                     <div
                       v-for="(text, key) in (currentPracticeQ.options || {})"
                       :key="key"
@@ -206,11 +228,11 @@
                   <div
                     class="mt-4 p-4 rounded-xl text-center font-semibold"
                     :style="{
-                      background: practiceIsCorrect ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
-                      color: practiceIsCorrect ? '#22c55e' : '#ef4444',
+                      background: currentPracticeQ.type === 'essay' ? 'rgba(249,168,212,0.1)' : practiceIsCorrect ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
+                      color: currentPracticeQ.type === 'essay' ? '#ec4899' : practiceIsCorrect ? '#22c55e' : '#ef4444',
                     }"
                   >
-                    {{ practiceIsCorrect ? '回答正确！' : '回答错误' }}
+                    {{ currentPracticeQ.type === 'essay' ? '请对照参考答案自查' : practiceIsCorrect ? '回答正确！' : '回答错误' }}
                   </div>
 
                   <!-- Explanation -->
@@ -342,6 +364,11 @@
         </main>
       </div>
     </div>
+
+    <!-- AI Chat -->
+    <AiChat
+      :context="currentPracticeQ ? { questionTitle: currentPracticeQ.title } : undefined"
+    />
   </div>
 </template>
 
@@ -352,6 +379,7 @@ import { ElMessage } from "element-plus";
 import { Loading, Edit, Notebook, DataAnalysis, Clock, Star, CircleCheck, CircleClose, WarningFilled } from "@element-plus/icons-vue";
 import { useAuthStore } from "../stores/auth";
 import { studentExamsApi } from "../api";
+import AiChat from "../components/AiChat.vue";
 import type { Exam, Question } from "../types";
 
 const router = useRouter();
@@ -381,6 +409,7 @@ const practiceFinished = ref(false);
 const practiceSelected = ref("");
 const practiceMultiSelected = ref<string[]>([]);
 const practiceFillAnswer = ref("");
+const practiceEssayAnswer = ref("");
 const practiceSubmittedAnswer = ref("");
 const practiceIsCorrect = ref(false);
 const practiceCurrentAnswered = ref(false);
@@ -388,7 +417,7 @@ const practiceCurrentAnswered = ref(false);
 const currentPracticeQ = computed(() => practiceQuestions.value[practiceIndex.value]);
 
 const typeLabels: Record<string, string> = {
-  single: "单选题", multiple: "多选题", trueFalse: "判断题", fillBlank: "填空题",
+  single: "单选题", multiple: "多选题", trueFalse: "判断题", fillBlank: "填空题", essay: "问答题",
 };
 const difficultyLabels: Record<string, string> = {
   easy: "简单", medium: "中等", hard: "困难",
@@ -400,6 +429,7 @@ const hasPracticeAnswer = computed(() => {
   if (!currentPracticeQ.value) return false;
   if (currentPracticeQ.value.type === "multiple") return practiceMultiSelected.value.length > 0;
   if (currentPracticeQ.value.type === "fillBlank") return practiceFillAnswer.value.trim() !== "";
+  if (currentPracticeQ.value.type === "essay") return practiceEssayAnswer.value.trim() !== "";
   return practiceSelected.value !== "";
 });
 
@@ -446,13 +476,18 @@ const submitPracticeAnswer = () => {
     studentAnswer = practiceMultiSelected.value.sort().join(",");
   } else if (q.type === "fillBlank") {
     studentAnswer = practiceFillAnswer.value.trim();
+  } else if (q.type === "essay") {
+    studentAnswer = practiceEssayAnswer.value.trim();
   } else {
     studentAnswer = practiceSelected.value;
   }
 
   practiceSubmittedAnswer.value = studentAnswer;
 
-  if (q.type === "multiple") {
+  if (q.type === "essay") {
+    // 问答题不自动判对错，设为 true 以显示参考答案
+    practiceIsCorrect.value = true;
+  } else if (q.type === "multiple") {
     const correctSet = new Set(q.correctAnswer.split(",").filter(Boolean));
     const answerSet = new Set(studentAnswer.split(",").filter(Boolean));
     const correctSelected = [...answerSet].filter((a) => correctSet.has(a)).length;
@@ -475,6 +510,7 @@ const nextPractice = () => {
     practiceSelected.value = "";
     practiceMultiSelected.value = [];
     practiceFillAnswer.value = "";
+    practiceEssayAnswer.value = "";
     practiceSubmittedAnswer.value = "";
     practiceIsCorrect.value = false;
     practiceCurrentAnswered.value = false;
@@ -492,6 +528,7 @@ const startPractice = async () => {
   practiceSelected.value = "";
   practiceMultiSelected.value = [];
   practiceFillAnswer.value = "";
+  practiceEssayAnswer.value = "";
   practiceSubmittedAnswer.value = "";
   practiceIsCorrect.value = false;
   practiceCurrentAnswered.value = false;
@@ -515,6 +552,7 @@ const resetPractice = () => {
   practiceAnswered.value = 0;
   practiceCorrect.value = 0;
   practiceCurrentAnswered.value = false;
+  practiceEssayAnswer.value = "";
 };
 
 const loadData = async () => {

@@ -64,15 +64,25 @@
               </div>
             </div>
             <div class="text-right">
-              <div class="text-3xl font-bold mb-1" :style="{ color: score.status === 'passed' ? '#22c55e' : '#ef4444' }">
-                {{ score.score }}
-              </div>
-              <div class="text-sm mb-3" style="color: var(--color-text-secondary)">
-                / {{ score.totalPoints }}
-              </div>
-              <el-tag :type="score.status === 'passed' ? 'success' : 'danger'" effect="plain">
-                {{ score.status === "passed" ? "及格" : "未及格" }}
-              </el-tag>
+              <template v-if="score.status === 'pending'">
+                <div class="text-lg font-bold mb-1" style="color: #f59e0b">
+                  待批阅
+                </div>
+                <el-tag type="warning" effect="plain">
+                  等待教师批阅
+                </el-tag>
+              </template>
+              <template v-else>
+                <div class="text-3xl font-bold mb-1" :style="{ color: score.status === 'passed' ? '#22c55e' : '#ef4444' }">
+                  {{ score.score }}
+                </div>
+                <div class="text-sm mb-3" style="color: var(--color-text-secondary)">
+                  / {{ score.totalPoints }}
+                </div>
+                <el-tag :type="score.status === 'passed' ? 'success' : 'danger'" effect="plain">
+                  {{ score.status === "passed" ? "及格" : "未及格" }}
+                </el-tag>
+              </template>
             </div>
           </div>
         </div>
@@ -89,7 +99,13 @@
           <el-icon class="is-loading" :size="32" style="color: #f9a8d4"><Loading /></el-icon>
         </div>
         <div v-else-if="detailData" class="space-y-4">
-          <div class="flex justify-between items-center p-4 rounded-xl" style="background: var(--color-muted)">
+          <!-- 待批阅状态 -->
+          <div v-if="detailData.status === 'submitted'" class="p-4 rounded-xl text-center" style="background: rgba(245,158,11,0.05); border: 1px solid rgba(245,158,11,0.2)">
+            <p class="text-lg font-bold" style="color: #f59e0b">⏳ 等待教师批阅</p>
+            <p class="text-sm mt-1" style="color: var(--color-text-secondary)">试卷中包含问答题，教师批阅后将公布成绩</p>
+          </div>
+          <!-- 已批改 -->
+          <div v-else class="flex justify-between items-center p-4 rounded-xl" style="background: var(--color-muted)">
             <span class="text-sm" style="color: var(--color-text-secondary)">总分</span>
             <span class="text-2xl font-bold" :style="{ color: detailData.score >= detailData.passingScore ? '#22c55e' : '#ef4444' }">
               {{ detailData.score }} / {{ detailData.totalPoints }}
@@ -101,8 +117,8 @@
               :key="q.questionId"
               class="p-4 rounded-xl border"
               :style="{
-                borderColor: q.isCorrect ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)',
-                background: q.isCorrect ? 'rgba(34,197,94,0.03)' : 'rgba(239,68,68,0.03)',
+                borderColor: q.type === 'essay' && q.isCorrect === null ? 'rgba(249,168,212,0.3)' : q.isCorrect ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)',
+                background: q.type === 'essay' && q.isCorrect === null ? 'rgba(249,168,212,0.03)' : q.isCorrect ? 'rgba(34,197,94,0.03)' : 'rgba(239,68,68,0.03)',
               }"
             >
               <div class="flex items-center justify-between mb-2">
@@ -110,12 +126,26 @@
                   <span class="text-sm font-semibold" style="color: #f9a8d4">{{ idx + 1 }}</span>
                   <el-tag size="small" effect="plain">{{ getTypeLabel(q.type) }}</el-tag>
                 </div>
-                <span class="text-sm font-medium" :style="{ color: q.isCorrect ? '#22c55e' : '#ef4444' }">
+                <span class="text-sm font-medium" :style="{ color: q.type === 'essay' && q.isCorrect === null ? '#f9a8d4' : q.isCorrect ? '#22c55e' : '#ef4444' }">
                   {{ q.earnedPoints }} / {{ q.totalPoints }} 分
                 </span>
               </div>
               <p class="text-sm font-medium mb-2">{{ q.title }}</p>
-              <div class="text-xs space-y-1" style="color: var(--color-text-secondary)">
+              <div v-if="q.type === 'essay'" class="space-y-2 mb-2">
+                <div class="p-3 rounded-lg text-xs" style="background: rgba(249,168,212,0.05)">
+                  <p class="font-medium mb-1" style="color: var(--color-text-secondary)">我的答案：</p>
+                  <p class="whitespace-pre-wrap">{{ q.studentAnswer || '未作答' }}</p>
+                </div>
+                <div class="p-3 rounded-lg text-xs" style="background: rgba(34,197,94,0.05)">
+                  <p class="font-medium mb-1" style="color: var(--color-text-secondary)">参考答案：</p>
+                  <p class="whitespace-pre-wrap">{{ q.correctAnswer }}</p>
+                </div>
+                <div v-if="q.aiComment" class="p-3 rounded-lg text-xs" style="background: rgba(168,85,247,0.05)">
+                  <p class="font-medium mb-1" style="color: #a855f7">🤖 AI 评语：</p>
+                  <p>{{ q.aiComment }}</p>
+                </div>
+              </div>
+              <div v-else class="text-xs space-y-1" style="color: var(--color-text-secondary)">
                 <p>我的答案: <span :class="q.isCorrect ? 'text-green-600' : 'text-red-600'">{{ formatAnswer(q.studentAnswer, q.options, q.type) || '未作答' }}</span></p>
                 <p>正确答案: <span class="text-green-600">{{ formatAnswer(q.correctAnswer, q.options, q.type) }}</span></p>
               </div>
@@ -162,7 +192,7 @@ watch(selectedScore, async (score) => {
 });
 
 const typeLabels: Record<string, string> = {
-  single: "单选题", multiple: "多选题", trueFalse: "判断题", fillBlank: "填空题",
+  single: "单选题", multiple: "多选题", trueFalse: "判断题", fillBlank: "填空题", essay: "问答题",
 };
 const getTypeLabel = (t: string) => typeLabels[t] ?? t;
 
@@ -179,19 +209,16 @@ const formatAnswer = (answer: string, options: Record<string, string> | null, ty
 
 const statistics = computed(() => {
   const data = scores.value;
+  const graded = data.filter((r) => r.status !== "pending");
+  const pending = data.filter((r) => r.status === "pending");
   return [
     { label: "考试总数", value: data.length },
+    { label: "待批阅", value: pending.length },
     {
       label: "平均分",
-      value: data.length > 0 ? Math.round(data.reduce((s, r) => s + r.score, 0) / data.length) : 0,
+      value: graded.length > 0 ? Math.round(graded.reduce((s, r) => s + r.score, 0) / graded.length) : 0,
     },
-    { label: "及格数", value: data.filter((r) => r.status === "passed").length },
-    {
-      label: "及格率",
-      value: data.length > 0
-        ? Math.round((data.filter((r) => r.status === "passed").length / data.length) * 100) + "%"
-        : "0%",
-    },
+    { label: "及格数", value: graded.filter((r) => r.status === "passed").length },
   ];
 });
 

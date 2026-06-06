@@ -4,6 +4,7 @@ import { getDb, getUserByOpenId, upsertUser } from "./db";
 import { sdk } from "./_core/sdk";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { ENV } from "./_core/env";
+import { streamChat, buildStudentChatMessages, gradeEssay } from "./ai";
 import {
   users,
   questions,
@@ -175,7 +176,7 @@ export function createApiRouter(): Router {
       const db = await getDb();
       if (!db) return res.status(500).json({ error: "数据库不可用" });
 
-      const { type, title, options, correctAnswer, explanation, difficulty, category, points } = req.body;
+      const { type, title, options, correctAnswer, explanation, difficulty, category, points, gradingRubric } = req.body;
 
       if (!type || !title || !correctAnswer) {
         return res.status(400).json({ error: "缺少必填字段" });
@@ -191,6 +192,7 @@ export function createApiRouter(): Router {
         difficulty: difficulty ?? "medium",
         category: category ?? null,
         points: (points ?? 1).toString(),
+        gradingRubric: gradingRubric ?? null,
       });
 
       const insertId = Number((result as any).insertId ?? (result as any)[0]?.insertId ?? 0);
@@ -207,7 +209,7 @@ export function createApiRouter(): Router {
       if (!db) return res.status(500).json({ error: "数据库不可用" });
 
       const id = Number(req.params.id);
-      const { title, options, correctAnswer, explanation, difficulty, category, points } = req.body;
+      const { title, options, correctAnswer, explanation, difficulty, category, points, gradingRubric } = req.body;
 
       const updateData: Record<string, unknown> = {};
       if (title !== undefined) updateData.title = title;
@@ -217,6 +219,7 @@ export function createApiRouter(): Router {
       if (difficulty !== undefined) updateData.difficulty = difficulty;
       if (category !== undefined) updateData.category = category;
       if (points !== undefined) updateData.points = points.toString();
+      if (gradingRubric !== undefined) updateData.gradingRubric = gradingRubric;
 
       await db
         .update(questions)
@@ -256,9 +259,18 @@ export function createApiRouter(): Router {
     try {
       const db = await getDb();
       if (!db) return res.json([]);
-      const result = req.user!.role === "admin"
-        ? await db.select().from(exams)
-        : await db.select().from(exams).where(eq(exams.createdBy, req.user!.id));
+      let result;
+      if (req.user!.role === "admin") {
+        result = await db.select().from(exams);
+      } else {
+        // 教师看到自己创建的 + 管理员创建的试卷
+        const admins = await db.select({ id: users.id }).from(users).where(eq(users.role, "admin"));
+        const adminIds = admins.map(a => a.id);
+        const visibleIds = [req.user!.id, ...adminIds];
+        result = await db.select().from(exams).where(
+          or(...visibleIds.map(id => eq(exams.createdBy, id)))
+        );
+      }
       res.json(result);
     } catch (error) {
       console.error("[API] exams.list failed:", error);
@@ -574,6 +586,7 @@ export function createApiRouter(): Router {
       }
 
       let totalScore = 0;
+      let hasEssay = false;
 
       // Grade each answer
       for (const examQ of examQs) {
@@ -582,10 +595,15 @@ export function createApiRouter(): Router {
 
         const question = q[0];
         const studentAnswer = answers[examQ.questionId] ?? "";
-        let isCorrect = false;
+        let isCorrect: boolean | null = false;
         let earnedPoints = 0;
 
-        if (question.type === "single" || question.type === "trueFalse") {
+        if (question.type === "essay") {
+          // 问答题不自动评分，等待教师批改或AI评分
+          isCorrect = null;
+          earnedPoints = 0;
+          hasEssay = true;
+        } else if (question.type === "single" || question.type === "trueFalse") {
           isCorrect = studentAnswer === question.correctAnswer;
         } else if (question.type === "multiple") {
           const correctSet = new Set(question.correctAnswer.split(",").filter(Boolean));
@@ -601,7 +619,7 @@ export function createApiRouter(): Router {
           isCorrect = correctAnswers.includes(studentAnswer.trim().toLowerCase());
         }
 
-        if (isCorrect && question.type !== "multiple") {
+        if (isCorrect && question.type !== "multiple" && question.type !== "essay") {
           earnedPoints = Number(examQ.points);
         }
         totalScore += earnedPoints;
@@ -616,10 +634,11 @@ export function createApiRouter(): Router {
       }
 
       // Update exam record with score
+      // 如果包含问答题，状态为 submitted（等待批改）；否则为 graded
       const finalScore = Math.round(totalScore * 10) / 10;
       await db
         .update(examRecords)
-        .set({ score: finalScore.toString(), status: "graded" })
+        .set({ score: finalScore.toString(), status: hasEssay ? "submitted" : "graded" })
         .where(eq(examRecords.id, recordId));
 
       res.json({
@@ -627,6 +646,7 @@ export function createApiRouter(): Router {
         recordId,
         score: finalScore,
         totalPoints: Number(exam[0].totalPoints),
+        hasEssay,
       });
     } catch (error) {
       console.error("[API] studentExams.submit failed:", error);
@@ -641,10 +661,18 @@ export function createApiRouter(): Router {
       const db = await getDb();
       if (!db) return res.json([]);
 
-      // Admin sees all exams, teacher sees only their own
-      const teacherExams = req.user!.role === "admin"
-        ? await db.select().from(exams)
-        : await db.select().from(exams).where(eq(exams.createdBy, req.user!.id));
+      // Admin sees all exams, teacher sees own + admin-created exams
+      let teacherExams;
+      if (req.user!.role === "admin") {
+        teacherExams = await db.select().from(exams);
+      } else {
+        const admins = await db.select({ id: users.id }).from(users).where(eq(users.role, "admin"));
+        const adminIds = admins.map(a => a.id);
+        const visibleIds = [req.user!.id, ...adminIds];
+        teacherExams = await db.select().from(exams).where(
+          or(...visibleIds.map(id => eq(exams.createdBy, id)))
+        );
+      }
 
       const examIds = teacherExams.map((e) => e.id);
       if (examIds.length === 0) return res.json([]);
@@ -720,6 +748,14 @@ export function createApiRouter(): Router {
       const result = [];
       for (const r of records) {
         const exam = await db.select().from(exams).where(eq(exams.id, r.examId));
+        const examRecord = r as typeof r & { status: string | null };
+        // 如果是 submitted 状态（有问答题待批改），显示为 pending
+        let status: string;
+        if (examRecord.status === "submitted") {
+          status = "pending";
+        } else {
+          status = Number(r.score ?? 0) >= Number(exam[0]?.passingScore ?? 60) ? "passed" : "failed";
+        }
         result.push({
           id: r.id,
           examTitle: exam[0]?.title ?? "未知考试",
@@ -727,7 +763,7 @@ export function createApiRouter(): Router {
           totalPoints: Number(exam[0]?.totalPoints ?? 0),
           duration: exam[0]?.duration ?? 0,
           submittedAt: r.endTime ? new Date(r.endTime).toLocaleString("zh-CN") : "-",
-          status: Number(r.score ?? 0) >= Number(exam[0]?.passingScore ?? 60) ? "passed" : "failed",
+          status,
         });
       }
 
@@ -756,11 +792,17 @@ export function createApiRouter(): Router {
       const exam = await db.select().from(exams).where(eq(exams.id, r.examId));
       if (!exam.length) return res.status(404).json({ error: "考试不存在" });
 
-      // Permission check: student can view own record, teacher can view records of their exams, admin can view all
+      // Permission check: student can view own record, teacher can view records of their exams and admin-created exams, admin can view all
       const isOwner = r.studentId === req.user!.id;
-      const isExamOwner = exam[0].createdBy === req.user!.id;
       const isAdmin = req.user!.role === "admin";
-      if (!isOwner && !isExamOwner && !isAdmin) {
+      const isExamOwner = exam[0].createdBy === req.user!.id;
+      // 检查试卷创建者是否为管理员（教师可查看管理员创建的试卷）
+      let isCreatedByAdmin = false;
+      if (!isExamOwner && !isAdmin) {
+        const examCreator = await db.select({ role: users.role }).from(users).where(eq(users.id, exam[0].createdBy));
+        isCreatedByAdmin = examCreator.length > 0 && examCreator[0].role === "admin";
+      }
+      if (!isOwner && !isExamOwner && !isAdmin && !isCreatedByAdmin) {
         return res.status(403).json({ error: "无权查看此成绩" });
       }
 
@@ -791,6 +833,9 @@ export function createApiRouter(): Router {
             isCorrect: a.isCorrect,
             earnedPoints: Number(a.earnedPoints ?? 0),
             totalPoints: pointsMap.get(a.questionId) ?? Number(q[0].points),
+            gradingRubric: q[0].gradingRubric ?? null,
+            aiScore: a.aiScore ? Number(a.aiScore) : null,
+            aiComment: a.aiComment ?? null,
           });
         }
       }
@@ -808,6 +853,279 @@ export function createApiRouter(): Router {
     } catch (error) {
       console.error("[API] scores.detail failed:", error);
       res.status(500).json({ error: "获取成绩详情失败" });
+    }
+  });
+
+  // ==================== AI Chat ====================
+
+  router.post("/ai/chat", requireAuth, async (req, res) => {
+    try {
+      const { message, context } = req.body as {
+        message: string;
+        context?: { questionTitle?: string };
+      };
+
+      if (!message?.trim()) {
+        return res.status(400).json({ error: "请输入问题" });
+      }
+
+      const messages = buildStudentChatMessages(message.trim(), context);
+      await streamChat(messages, res);
+    } catch (error) {
+      console.error("[API] ai.chat failed:", error);
+      res.status(500).json({ error: "AI 服务调用失败" });
+    }
+  });
+
+  // ==================== Teacher AI Grading ====================
+
+  // 检查教师是否有权限批改该考试（自己创建的 或 管理员创建的）
+  async function canTeacherGrade(userId: number, userRole: string, examCreatedBy: number): Promise<boolean> {
+    if (userRole === "admin") return true;
+    if (examCreatedBy === userId) return true;
+    // 检查试卷创建者是否为管理员
+    const db = await getDb();
+    if (!db) return false;
+    const creator = await db.select({ role: users.role }).from(users).where(eq(users.id, examCreatedBy));
+    return creator.length > 0 && creator[0].role === "admin";
+  }
+
+  // AI 评分单个问答题
+  router.post("/teacher/ai-grade", requireAuth, async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(500).json({ error: "数据库不可用" });
+
+      const { recordId, questionId } = req.body as { recordId: number; questionId: number };
+      if (!recordId || !questionId) {
+        return res.status(400).json({ error: "缺少参数" });
+      }
+
+      // 获取考试记录，验证教师权限
+      const record = await db.select().from(examRecords).where(eq(examRecords.id, recordId));
+      if (!record.length) return res.status(404).json({ error: "成绩记录不存在" });
+
+      const exam = await db.select().from(exams).where(eq(exams.id, record[0].examId));
+      if (!exam.length) return res.status(404).json({ error: "考试不存在" });
+
+      if (!await canTeacherGrade(req.user!.id, req.user!.role, exam[0].createdBy)) {
+        return res.status(403).json({ error: "无权操作" });
+      }
+
+      // 获取题目信息
+      const question = await db.select().from(questions).where(eq(questions.id, questionId));
+      if (!question.length) return res.status(404).json({ error: "题目不存在" });
+      if (question[0].type !== "essay") {
+        return res.status(400).json({ error: "只能对问答题进行 AI 评分" });
+      }
+
+      // 获取学生答案
+      const answer = await db.select().from(studentAnswers).where(
+        and(
+          eq(studentAnswers.examRecordId, recordId),
+          eq(studentAnswers.questionId, questionId)
+        )
+      );
+      if (!answer.length) return res.status(404).json({ error: "未找到学生作答" });
+
+      // 获取该题在考试中的分值
+      const examQ = await db.select().from(examQuestions).where(
+        and(
+          eq(examQuestions.examId, record[0].examId),
+          eq(examQuestions.questionId, questionId)
+        )
+      );
+      const totalPoints = examQ.length ? Number(examQ[0].points) : Number(question[0].points);
+
+      // 调用 AI 评分
+      const result = await gradeEssay(
+        question[0].title,
+        question[0].correctAnswer,
+        question[0].gradingRubric,
+        answer[0].studentAnswer,
+        totalPoints
+      );
+
+      // 保存 AI 评分结果
+      await db.update(studentAnswers).set({
+        aiScore: result.score.toString(),
+        aiComment: result.comment,
+      }).where(
+        and(
+          eq(studentAnswers.examRecordId, recordId),
+          eq(studentAnswers.questionId, questionId)
+        )
+      );
+
+      res.json({ aiScore: result.score, aiComment: result.comment });
+    } catch (error) {
+      console.error("[API] teacher.ai-grade failed:", error);
+      res.status(500).json({ error: "AI 评分失败" });
+    }
+  });
+
+  // 批量 AI 评分
+  router.post("/teacher/batch-ai-grade", requireAuth, async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(500).json({ error: "数据库不可用" });
+
+      const { recordId } = req.body as { recordId: number };
+      if (!recordId) return res.status(400).json({ error: "缺少参数" });
+
+      // 获取考试记录，验证权限
+      const record = await db.select().from(examRecords).where(eq(examRecords.id, recordId));
+      if (!record.length) return res.status(404).json({ error: "成绩记录不存在" });
+
+      const exam = await db.select().from(exams).where(eq(exams.id, record[0].examId));
+      if (!exam.length) return res.status(404).json({ error: "考试不存在" });
+
+      if (!await canTeacherGrade(req.user!.id, req.user!.role, exam[0].createdBy)) {
+        return res.status(403).json({ error: "无权操作" });
+      }
+
+      // 获取该考试所有问答题的学生答案
+      const answers = await db.select().from(studentAnswers).where(
+        eq(studentAnswers.examRecordId, recordId)
+      );
+
+      const examQs = await db.select().from(examQuestions).where(
+        eq(examQuestions.examId, record[0].examId)
+      );
+      const pointsMap = new Map(examQs.map((eq) => [eq.questionId, Number(eq.points)]));
+
+      let graded = 0;
+      const results: Array<{ questionId: number; aiScore: number; aiComment: string }> = [];
+
+      for (const ans of answers) {
+        const q = await db.select().from(questions).where(eq(questions.id, ans.questionId));
+        if (!q.length || q[0].type !== "essay") continue;
+        // 跳过已有 AI 评分的答案
+        if (ans.aiScore !== null) continue;
+
+        const totalPoints = pointsMap.get(ans.questionId) ?? Number(q[0].points);
+
+        const result = await gradeEssay(
+          q[0].title,
+          q[0].correctAnswer,
+          q[0].gradingRubric,
+          ans.studentAnswer,
+          totalPoints
+        );
+
+        await db.update(studentAnswers).set({
+          aiScore: result.score.toString(),
+          aiComment: result.comment,
+        }).where(
+          and(
+            eq(studentAnswers.examRecordId, recordId),
+            eq(studentAnswers.questionId, ans.questionId)
+          )
+        );
+
+        results.push({ questionId: ans.questionId, aiScore: result.score, aiComment: result.comment });
+        graded++;
+      }
+
+      res.json({ success: true, graded, results });
+    } catch (error) {
+      console.error("[API] teacher.batch-ai-grade failed:", error);
+      res.status(500).json({ error: "批量 AI 评分失败" });
+    }
+  });
+
+  // 教师确认/修改评分
+  router.put("/teacher/confirm-grade", requireAuth, async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(500).json({ error: "数据库不可用" });
+
+      const { recordId, questionId, earnedPoints } = req.body as {
+        recordId: number;
+        questionId: number;
+        earnedPoints: number;
+      };
+
+      if (!recordId || !questionId || earnedPoints === undefined) {
+        return res.status(400).json({ error: "缺少参数" });
+      }
+
+      // 验证权限
+      const record = await db.select().from(examRecords).where(eq(examRecords.id, recordId));
+      if (!record.length) return res.status(404).json({ error: "成绩记录不存在" });
+
+      const exam = await db.select().from(exams).where(eq(exams.id, record[0].examId));
+      if (!exam.length) return res.status(404).json({ error: "考试不存在" });
+
+      if (!await canTeacherGrade(req.user!.id, req.user!.role, exam[0].createdBy)) {
+        return res.status(403).json({ error: "无权操作" });
+      }
+
+      // 更新该题得分
+      await db.update(studentAnswers).set({
+        earnedPoints: earnedPoints.toString(),
+        isCorrect: earnedPoints > 0,
+      }).where(
+        and(
+          eq(studentAnswers.examRecordId, recordId),
+          eq(studentAnswers.questionId, questionId)
+        )
+      );
+
+      // 重新计算总分
+      const allAnswers = await db.select().from(studentAnswers).where(
+        eq(studentAnswers.examRecordId, recordId)
+      );
+      const totalScore = Math.round(
+        allAnswers.reduce((sum, a) => sum + Number(a.earnedPoints ?? 0), 0) * 10
+      ) / 10;
+
+      await db.update(examRecords).set({
+        score: totalScore.toString(),
+      }).where(eq(examRecords.id, recordId));
+
+      res.json({ success: true, score: totalScore });
+    } catch (error) {
+      console.error("[API] teacher.confirm-grade failed:", error);
+      res.status(500).json({ error: "确认评分失败" });
+    }
+  });
+
+  // 教师批量确认所有问答题评分（将 submitted 改为 graded）
+  router.put("/teacher/confirm-all/:recordId", requireAuth, async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(500).json({ error: "数据库不可用" });
+
+      const recordId = Number(req.params.recordId);
+
+      const record = await db.select().from(examRecords).where(eq(examRecords.id, recordId));
+      if (!record.length) return res.status(404).json({ error: "成绩记录不存在" });
+
+      const exam = await db.select().from(exams).where(eq(exams.id, record[0].examId));
+      if (!exam.length) return res.status(404).json({ error: "考试不存在" });
+
+      if (!await canTeacherGrade(req.user!.id, req.user!.role, exam[0].createdBy)) {
+        return res.status(403).json({ error: "无权操作" });
+      }
+
+      // 重新计算总分
+      const allAnswers = await db.select().from(studentAnswers).where(
+        eq(studentAnswers.examRecordId, recordId)
+      );
+      const totalScore = Math.round(
+        allAnswers.reduce((sum, a) => sum + Number(a.earnedPoints ?? 0), 0) * 10
+      ) / 10;
+
+      await db.update(examRecords).set({
+        score: totalScore.toString(),
+        status: "graded",
+      }).where(eq(examRecords.id, recordId));
+
+      res.json({ success: true, score: totalScore });
+    } catch (error) {
+      console.error("[API] teacher.confirmAll failed:", error);
+      res.status(500).json({ error: "确认评分失败" });
     }
   });
 
