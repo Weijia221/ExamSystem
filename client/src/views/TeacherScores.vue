@@ -6,7 +6,7 @@
     >
       <div class="container flex items-center justify-between h-16">
         <div class="flex items-center gap-3">
-          <el-button text @click="$router.push('/teacher/dashboard')">
+          <el-button text @click="$router.push(authStore.isAdmin ? '/admin/dashboard' : '/teacher/dashboard')">
             <el-icon class="mr-1"><ArrowLeft /></el-icon>
             返回
           </el-button>
@@ -287,8 +287,10 @@ import { ref, computed, onMounted } from "vue";
 import { ArrowLeft, Loading, DataAnalysis } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { scoresApi, teacherApi, type ScoreDetail } from "../api";
+import { useAuthStore } from "../stores/auth";
 import type { TeacherScore } from "../types";
 
+const authStore = useAuthStore();
 const scores = ref<TeacherScore[]>([]);
 const loading = ref(true);
 const selectedExam = ref("");

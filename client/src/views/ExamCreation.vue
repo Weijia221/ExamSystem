@@ -6,7 +6,7 @@
       style="border-color: var(--color-border); background: rgba(255,255,255,0.8)"
     >
       <div class="container flex items-center justify-between h-16">
-        <el-button text @click="$router.push('/teacher/dashboard')">
+        <el-button text @click="$router.push(authStore.isAdmin ? '/admin/dashboard' : '/teacher/dashboard')">
           <el-icon class="mr-1"><ArrowLeft /></el-icon>
           返回
         </el-button>
@@ -223,9 +223,11 @@ import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { ArrowLeft, FolderOpened, Loading, Document } from "@element-plus/icons-vue";
 import { questionsApi, examsApi } from "../api";
+import { useAuthStore } from "../stores/auth";
 import type { Question } from "../types";
 
 const router = useRouter();
+const authStore = useAuthStore();
 
 interface SelectedQuestion {
   id: number;
@@ -362,7 +364,7 @@ const handlePublish = async () => {
     await examsApi.publish(result.id);
 
     ElMessage.success("试卷已发布！");
-    router.push("/teacher/dashboard");
+    router.push(authStore.isAdmin ? "/admin/dashboard" : "/teacher/dashboard");
   } catch {
     ElMessage.error("发布失败，请稍后重试");
   } finally {
