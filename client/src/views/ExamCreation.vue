@@ -123,26 +123,45 @@
             <div v-else-if="bankQuestions.length === 0" class="text-center py-8" style="color: var(--color-text-secondary)">
               题库为空，请先在题库管理中添加题目
             </div>
-            <div v-else class="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
-              <div
-                v-for="q in bankQuestions"
-                :key="q.id"
-                class="flex items-start gap-4 p-4 rounded-xl border transition-colors"
-                :style="{
-                  borderColor: selectedInBank.includes(q.id) ? '#f9a8d4' : 'var(--color-border)',
-                  background: selectedInBank.includes(q.id) ? 'rgba(249,168,212,0.05)' : 'transparent',
-                }"
-              >
-                <el-checkbox
-                  :model-value="selectedInBank.includes(q.id)"
-                  :disabled="selectedQuestions.some((sq) => sq.id === q.id)"
-                  @change="(checked: boolean) => toggleBankSelection(q.id, checked)"
-                />
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2 mb-2 flex-wrap">
-                    <el-tag size="small" effect="plain">{{ getTypeLabel(q.type) }}</el-tag>
+            <div v-else class="max-h-[60vh] overflow-y-auto pr-2">
+              <!-- Type Categories -->
+              <div v-if="!bankSelectedType" class="grid grid-cols-2 gap-3">
+                <div
+                  v-for="item in bankTypeCategories"
+                  :key="item.type"
+                  class="p-4 rounded-xl border cursor-pointer hover:shadow-md transition-all text-center"
+                  style="border-color: var(--color-border)"
+                  @click="bankSelectedType = item.type"
+                >
+                  <h4 class="font-semibold">{{ item.label }}</h4>
+                  <p class="text-sm mt-1" style="color: var(--color-text-secondary)">{{ item.count }} 道题</p>
+                </div>
+              </div>
+              <!-- Questions in Type -->
+              <div v-else>
+                <el-button text size="small" @click="bankSelectedType = ''" class="mb-3">
+                  <el-icon class="mr-1"><ArrowLeft /></el-icon>返回分类
+                </el-button>
+                <h4 class="font-semibold mb-3">{{ getTypeLabel(bankSelectedType) }}</h4>
+                <div class="space-y-3">
+                  <div
+                    v-for="q in bankFilteredQuestions"
+                    :key="q.id"
+                    class="flex items-start gap-4 p-4 rounded-xl border transition-colors"
+                    :style="{
+                      borderColor: selectedInBank.includes(q.id) ? '#f9a8d4' : 'var(--color-border)',
+                      background: selectedInBank.includes(q.id) ? 'rgba(249,168,212,0.05)' : 'transparent',
+                    }"
+                  >
+                    <el-checkbox
+                      :model-value="selectedInBank.includes(q.id)"
+                      :disabled="selectedQuestions.some((sq) => sq.id === q.id)"
+                      @change="(checked: boolean) => toggleBankSelection(q.id, checked)"
+                    />
+                    <div class="flex-1 min-w-0">
+                      <p class="text-sm font-medium line-clamp-2">{{ q.title }}</p>
+                    </div>
                   </div>
-                  <p class="text-sm font-medium line-clamp-2">{{ q.title }}</p>
                 </div>
               </div>
             </div>
@@ -234,8 +253,30 @@ const bankLoading = ref(false);
 const showQuestionBank = ref(false);
 const selectedInBank = ref<number[]>([]);
 const publishing = ref(false);
+const bankSelectedType = ref("");
 
 const newSelections = ref<number[]>([]);
+
+// 题型分类
+const bankTypeCategories = computed(() => {
+  const types = [
+    { type: "single", label: "单选题" },
+    { type: "multiple", label: "多选题" },
+    { type: "trueFalse", label: "判断题" },
+    { type: "fillBlank", label: "填空题" },
+    { type: "essay", label: "问答题" },
+  ];
+  return types.map(t => ({
+    ...t,
+    count: bankQuestions.value.filter(q => q.type === t.type).length,
+  })).filter(t => t.count > 0);
+});
+
+// 当前题型下的题目
+const bankFilteredQuestions = computed(() => {
+  if (!bankSelectedType.value) return bankQuestions.value;
+  return bankQuestions.value.filter(q => q.type === bankSelectedType.value);
+});
 
 const totalCalculatedPoints = computed(() =>
   selectedQuestions.value.reduce((sum, q) => sum + q.points, 0)
@@ -250,6 +291,7 @@ const openQuestionBank = async () => {
   const existingIds = selectedQuestions.value.map((q) => q.id);
   selectedInBank.value = [...existingIds];
   newSelections.value = [];
+  bankSelectedType.value = "";
   showQuestionBank.value = true;
 
   bankLoading.value = true;
