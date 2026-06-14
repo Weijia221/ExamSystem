@@ -12,9 +12,10 @@ import {
   examQuestions,
   examRecords,
   studentAnswers,
+  practiceRecords,
   type User,
 } from "../drizzle/schema";
-import { eq, and, count, or, isNull } from "drizzle-orm";
+import { eq, and, count, or, isNull, sql, desc, not } from "drizzle-orm";
 
 // Dev user auto-login when OAuth is not configured
 async function getDevUser(role?: string): Promise<User | null> {
@@ -519,6 +520,222 @@ export function createApiRouter(): Router {
     } catch (error) {
       console.error("[API] studentPractice.getQuestions failed:", error);
       res.status(500).json({ error: "获取练习题目失败" });
+    }
+  });
+
+  // Practice: submit answer to practiceRecords
+  router.post("/student/practice/submit", requireAuth, async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(500).json({ error: "数据库不可用" });
+
+      const { questionId, studentAnswer, isCorrect } = req.body;
+      if (!questionId || studentAnswer === undefined) {
+        return res.status(400).json({ error: "缺少必填字段" });
+      }
+
+      await db.insert(practiceRecords).values({
+        studentId: req.user!.id,
+        questionId,
+        studentAnswer,
+        isCorrect: !!isCorrect,
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("[API] studentPractice.submit failed:", error);
+      res.status(500).json({ error: "保存练习答案失败" });
+    }
+  });
+
+  // Wrong answers book: get all wrong answers for current student
+  router.get("/student/wrong-answers", requireAuth, async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.json([]);
+
+      const studentId = req.user!.id;
+
+      // Get wrong answers from exam records
+      const examWrongs = await db
+        .select({
+          questionId: studentAnswers.questionId,
+          studentAnswer: studentAnswers.studentAnswer,
+          isCorrect: studentAnswers.isCorrect,
+          source: sql<string>`'exam'`,
+          createdAt: studentAnswers.createdAt,
+        })
+        .from(studentAnswers)
+        .innerJoin(examRecords, eq(studentAnswers.examRecordId, examRecords.id))
+        .where(and(eq(examRecords.studentId, studentId), eq(studentAnswers.isCorrect, false)));
+
+      // Get wrong answers from practice records
+      const practiceWrongs = await db
+        .select({
+          questionId: practiceRecords.questionId,
+          studentAnswer: practiceRecords.studentAnswer,
+          isCorrect: practiceRecords.isCorrect,
+          source: sql<string>`'practice'`,
+          createdAt: practiceRecords.createdAt,
+        })
+        .from(practiceRecords)
+        .where(and(eq(practiceRecords.studentId, studentId), eq(practiceRecords.isCorrect, false)));
+
+      // Combine and get unique question IDs
+      const allWrongs = [...examWrongs, ...practiceWrongs];
+      const questionIds = [...new Set(allWrongs.map((w) => w.questionId))];
+      if (questionIds.length === 0) return res.json([]);
+
+      // Get question details
+      const questionDetails = await db
+        .select({
+          id: questions.id,
+          type: questions.type,
+          title: questions.title,
+          options: questions.options,
+          correctAnswer: questions.correctAnswer,
+          explanation: questions.explanation,
+          difficulty: questions.difficulty,
+          category: questions.category,
+        })
+        .from(questions)
+        .where(
+          and(isNull(questions.deletedAt), or(...questionIds.map((id) => eq(questions.id, id))))
+        );
+
+      // Count total attempts and wrong attempts per question from both sources
+      const examAll = await db
+        .select({
+          questionId: studentAnswers.questionId,
+          total: count(),
+          wrong: sql<number>`SUM(CASE WHEN ${studentAnswers.isCorrect} = false THEN 1 ELSE 0 END)`,
+        })
+        .from(studentAnswers)
+        .innerJoin(examRecords, eq(studentAnswers.examRecordId, examRecords.id))
+        .where(eq(examRecords.studentId, studentId))
+        .groupBy(studentAnswers.questionId);
+
+      const practiceAll = await db
+        .select({
+          questionId: practiceRecords.questionId,
+          total: count(),
+          wrong: sql<number>`SUM(CASE WHEN ${practiceRecords.isCorrect} = false THEN 1 ELSE 0 END)`,
+        })
+        .from(practiceRecords)
+        .where(eq(practiceRecords.studentId, studentId))
+        .groupBy(practiceRecords.questionId);
+
+      // Merge attempt counts
+      const attemptMap = new Map<number, { total: number; wrong: number }>();
+      for (const row of examAll) {
+        const prev = attemptMap.get(row.questionId) || { total: 0, wrong: 0 };
+        attemptMap.set(row.questionId, { total: prev.total + row.total, wrong: prev.wrong + Number(row.wrong) });
+      }
+      for (const row of practiceAll) {
+        const prev = attemptMap.get(row.questionId) || { total: 0, wrong: 0 };
+        attemptMap.set(row.questionId, { total: prev.total + row.total, wrong: prev.wrong + Number(row.wrong) });
+      }
+
+      // Build response with error rate
+      const result = questionDetails
+        .map((q) => {
+          const attempts = attemptMap.get(q.id) || { total: 0, wrong: 0 };
+          return {
+            ...q,
+            totalAttempts: attempts.total,
+            wrongAttempts: attempts.wrong,
+            errorRate: attempts.total > 0 ? Math.round((attempts.wrong / attempts.total) * 100) : 0,
+          };
+        })
+        .sort((a, b) => b.errorRate - a.errorRate);
+
+      res.json(result);
+    } catch (error) {
+      console.error("[API] studentWrongAnswers failed:", error);
+      res.status(500).json({ error: "获取错题本失败" });
+    }
+  });
+
+  // Recommended questions based on wrong answer patterns
+  router.get("/student/recommended", requireAuth, async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.json([]);
+
+      const studentId = req.user!.id;
+
+      // Get categories and types from wrong answers
+      const wrongQuestions = await db
+        .select({
+          questionId: studentAnswers.questionId,
+        })
+        .from(studentAnswers)
+        .innerJoin(examRecords, eq(studentAnswers.examRecordId, examRecords.id))
+        .where(and(eq(examRecords.studentId, studentId), eq(studentAnswers.isCorrect, false)));
+
+      const practiceWrongs = await db
+        .select({ questionId: practiceRecords.questionId })
+        .from(practiceRecords)
+        .where(and(eq(practiceRecords.studentId, studentId), eq(practiceRecords.isCorrect, false)));
+
+      const wrongIds = [...new Set([...wrongQuestions.map((w) => w.questionId), ...practiceWrongs.map((w) => w.questionId)])];
+      if (wrongIds.length === 0) return res.json([]);
+
+      // Get the categories and types of wrong questions
+      const wrongDetails = await db
+        .select({ id: questions.id, category: questions.category, type: questions.type })
+        .from(questions)
+        .where(or(...wrongIds.map((id) => eq(questions.id, id))));
+
+      const categories = [...new Set(wrongDetails.map((q) => q.category).filter(Boolean))];
+      const types = [...new Set(wrongDetails.map((q) => q.type))];
+
+      // Get all question IDs the student has ever answered
+      const examAnswered = await db
+        .select({ questionId: studentAnswers.questionId })
+        .from(studentAnswers)
+        .innerJoin(examRecords, eq(studentAnswers.examRecordId, examRecords.id))
+        .where(eq(examRecords.studentId, studentId));
+      const practiceAnswered = await db
+        .select({ questionId: practiceRecords.questionId })
+        .from(practiceRecords)
+        .where(eq(practiceRecords.studentId, studentId));
+      const answeredIds = new Set([...examAnswered.map((a) => a.questionId), ...practiceAnswered.map((a) => a.questionId)]);
+
+      // Find recommended questions: same category or same type, not already answered, not deleted
+      const conditions = [isNull(questions.deletedAt)];
+      if (categories.length > 0 || types.length > 0) {
+        const orConditions = [];
+        if (categories.length > 0) {
+          orConditions.push(or(...categories.map((c) => eq(questions.category, c!))));
+        }
+        if (types.length > 0) {
+          orConditions.push(or(...types.map((t) => eq(questions.type, t))));
+        }
+        conditions.push(or(...orConditions));
+      }
+
+      const candidates = await db
+        .select({
+          id: questions.id,
+          type: questions.type,
+          title: questions.title,
+          options: questions.options,
+          difficulty: questions.difficulty,
+          category: questions.category,
+        })
+        .from(questions)
+        .where(and(...conditions));
+
+      // Filter out already answered questions and limit
+      const recommended = candidates
+        .filter((q) => !answeredIds.has(q.id))
+        .slice(0, 10);
+
+      res.json(recommended);
+    } catch (error) {
+      console.error("[API] studentRecommended failed:", error);
+      res.status(500).json({ error: "获取推荐题目失败" });
     }
   });
 
