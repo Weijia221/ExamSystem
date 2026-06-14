@@ -149,20 +149,10 @@ export interface WrongAnswerItem {
   errorRate: number;
 }
 
-export interface RecommendedQuestion {
-  id: number;
-  type: string;
-  title: string;
-  options: Record<string, string> | null;
-  difficulty: string;
-  category: string | null;
-}
-
 export const wrongBookApi = {
   submitPractice: (data: { questionId: number; studentAnswer: string; isCorrect: boolean }) =>
     api.post<{ success: boolean }>("/student/practice/submit", data).then((r) => r.data),
   list: () => api.get<WrongAnswerItem[]>("/student/wrong-answers").then((r) => r.data),
-  recommended: () => api.get<RecommendedQuestion[]>("/student/recommended").then((r) => r.data),
 };
 
 // AI Chat (SSE)
