@@ -946,10 +946,11 @@ export function createApiRouter(): Router {
         totalPoints
       );
 
-      // 保存 AI 评分结果
+      // 保存 AI 评分结果，同时更新 earnedPoints
       await db.update(studentAnswers).set({
         aiScore: result.score.toString(),
         aiComment: result.comment,
+        earnedPoints: result.score.toString(),
       }).where(
         and(
           eq(studentAnswers.examRecordId, recordId),
@@ -1016,6 +1017,7 @@ export function createApiRouter(): Router {
         await db.update(studentAnswers).set({
           aiScore: result.score.toString(),
           aiComment: result.comment,
+          earnedPoints: result.score.toString(),
         }).where(
           and(
             eq(studentAnswers.examRecordId, recordId),

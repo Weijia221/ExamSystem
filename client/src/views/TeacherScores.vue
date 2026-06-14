@@ -413,7 +413,9 @@ const startEditPoints = (questionId: number, currentPoints: number) => {
 // 确认修改分数
 const confirmEditPoints = async (questionId: number) => {
   if (!detailData.value) return;
-  const points = editingPoints.value[questionId];
+  // 优先从编辑框读取，否则从题目当前 earnedPoints 读取（AI 评分后）
+  const q = detailData.value.questions.find((q) => q.questionId === questionId);
+  const points = editingPoints.value[questionId] ?? q?.earnedPoints;
   if (points === undefined || points < 0) {
     ElMessage.warning("请输入有效分数");
     return;
