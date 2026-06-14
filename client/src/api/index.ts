@@ -134,6 +134,37 @@ export const scoresApi = {
   detail: (recordId: number) => api.get<ScoreDetail>(`/scores/${recordId}/detail`).then((r) => r.data),
 };
 
+// Wrong answer book
+export interface WrongAnswerItem {
+  id: number;
+  type: string;
+  title: string;
+  options: Record<string, string> | null;
+  correctAnswer: string;
+  explanation: string | null;
+  difficulty: string;
+  category: string | null;
+  totalAttempts: number;
+  wrongAttempts: number;
+  errorRate: number;
+}
+
+export interface RecommendedQuestion {
+  id: number;
+  type: string;
+  title: string;
+  options: Record<string, string> | null;
+  difficulty: string;
+  category: string | null;
+}
+
+export const wrongBookApi = {
+  submitPractice: (data: { questionId: number; studentAnswer: string; isCorrect: boolean }) =>
+    api.post<{ success: boolean }>("/student/practice/submit", data).then((r) => r.data),
+  list: () => api.get<WrongAnswerItem[]>("/student/wrong-answers").then((r) => r.data),
+  recommended: () => api.get<RecommendedQuestion[]>("/student/recommended").then((r) => r.data),
+};
+
 // AI Chat (SSE)
 export const aiApi = {
   chat: async function* (

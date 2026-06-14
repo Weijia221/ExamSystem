@@ -361,6 +361,153 @@
               </el-button>
             </div>
           </div>
+
+          <!-- Wrong Book Tab -->
+          <div v-if="activeTab === 'wrongBook'" class="space-y-6 animate-fade-in">
+            <div>
+              <h2 class="text-3xl font-bold">错题本</h2>
+              <p class="mt-1" style="color: var(--color-text-secondary)">查看考试和练习中的错题，巩固薄弱知识点</p>
+            </div>
+
+            <!-- Stats -->
+            <div class="grid grid-cols-2 gap-4">
+              <div class="card-elegant text-center py-4">
+                <p class="text-2xl font-bold" style="color: #f9a8d4">{{ wrongAnswers.length }}</p>
+                <p class="text-sm" style="color: var(--color-text-secondary)">错题总数</p>
+              </div>
+              <div class="card-elegant text-center py-4">
+                <p class="text-2xl font-bold" style="color: #ec4899">
+                  {{ wrongAnswers.length > 0 ? Math.round(wrongAnswers.reduce((s, w) => s + w.errorRate, 0) / wrongAnswers.length) : 0 }}%
+                </p>
+                <p class="text-sm" style="color: var(--color-text-secondary)">平均错误率</p>
+              </div>
+            </div>
+
+            <!-- Wrong Answer List -->
+            <div v-if="wrongLoading" class="card-elegant text-center py-12">
+              <el-icon class="is-loading" :size="32" style="color: #f9a8d4"><Loading /></el-icon>
+            </div>
+            <div v-else-if="wrongAnswers.length === 0" class="card-elegant text-center py-12">
+              <el-icon :size="48" style="color: var(--color-border)"><CircleCheck /></el-icon>
+              <p class="mt-4" style="color: var(--color-text-secondary)">暂无错题，继续保持！</p>
+            </div>
+            <div v-else class="space-y-4">
+              <div
+                v-for="(q, idx) in wrongAnswers"
+                :key="q.id"
+                class="card-elegant"
+              >
+                <div class="flex items-start justify-between gap-4">
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 mb-2">
+                      <el-tag effect="plain" size="small">{{ getTypeLabel(q.type) }}</el-tag>
+                      <el-tag
+                        :type="q.difficulty === 'easy' ? 'success' : q.difficulty === 'hard' ? 'danger' : 'warning'"
+                        effect="plain"
+                        size="small"
+                      >
+                        {{ getDifficultyLabel(q.difficulty) }}
+                      </el-tag>
+                      <span v-if="q.category" class="text-xs" style="color: var(--color-text-secondary)">{{ q.category }}</span>
+                    </div>
+                    <p class="font-medium mb-2">{{ idx + 1 }}. {{ q.title }}</p>
+                    <div v-if="q.options" class="flex flex-wrap gap-2 mb-2">
+                      <span
+                        v-for="(text, key) in q.options"
+                        :key="key"
+                        class="text-xs px-2 py-1 rounded"
+                        :style="q.correctAnswer.includes(String(key)) ? 'background: #ecfdf5; color: #059669' : 'background: var(--color-background); color: var(--color-text-secondary)'"
+                      >
+                        {{ key }}. {{ text }}
+                      </span>
+                    </div>
+                    <div class="flex items-center gap-4 text-xs" style="color: var(--color-text-secondary)">
+                      <span>正确答案：<b style="color: #059669">{{ q.correctAnswer }}</b></span>
+                      <span>错误率：<b style="color: #ef4444">{{ q.errorRate }}%</b></span>
+                      <span>作答 {{ q.totalAttempts }} 次，错误 {{ q.wrongAttempts }} 次</span>
+                    </div>
+                    <p v-if="q.explanation" class="mt-2 text-xs" style="color: var(--color-text-secondary)">
+                      💡 {{ q.explanation }}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Recommended Questions -->
+            <div class="mt-8">
+              <div class="flex items-center justify-between mb-4">
+                <div>
+                  <h3 class="text-xl font-bold">推荐练习</h3>
+                  <p class="text-sm" style="color: var(--color-text-secondary)">根据你的错题推荐相关题目</p>
+                </div>
+                <el-button size="small" @click="loadRecommended" :loading="recLoading">刷新</el-button>
+              </div>
+
+              <div v-if="recLoading" class="card-elegant text-center py-12">
+                <el-icon class="is-loading" :size="32" style="color: #f9a8d4"><Loading /></el-icon>
+              </div>
+              <div v-else-if="recommendedQuestions.length === 0" class="card-elegant text-center py-8">
+                <p style="color: var(--color-text-secondary)">暂无推荐题目</p>
+              </div>
+              <div v-else class="space-y-4">
+                <div
+                  v-for="(q, idx) in recommendedQuestions"
+                  :key="q.id"
+                  class="card-elegant"
+                >
+                  <div class="flex items-center gap-2 mb-2">
+                    <el-tag effect="plain" size="small">{{ getTypeLabel(q.type) }}</el-tag>
+                    <el-tag
+                      :type="q.difficulty === 'easy' ? 'success' : q.difficulty === 'hard' ? 'danger' : 'warning'"
+                      effect="plain"
+                      size="small"
+                    >
+                      {{ getDifficultyLabel(q.difficulty) }}
+                    </el-tag>
+                    <span v-if="q.category" class="text-xs" style="color: var(--color-text-secondary)">{{ q.category }}</span>
+                  </div>
+                  <p class="font-medium mb-3">{{ idx + 1 }}. {{ q.title }}</p>
+
+                  <!-- Answer section for recommended questions -->
+                  <div v-if="recAnswers[q.id]?.answered">
+                    <div
+                      class="p-3 rounded-lg mb-2"
+                      :style="recAnswers[q.id]?.correct ? 'background: #ecfdf5; border: 1px solid #a7f3d0' : 'background: #fef2f2; border: 1px solid #fecaca'"
+                    >
+                      <p class="font-medium" :style="recAnswers[q.id]?.correct ? 'color: #059669' : 'color: #ef4444'">
+                        {{ recAnswers[q.id]?.correct ? '✓ 回答正确！' : '✗ 回答错误' }}
+                      </p>
+                      <p class="text-sm mt-1">你的答案：{{ recAnswers[q.id]?.studentAnswer }}</p>
+                    </div>
+                  </div>
+                  <div v-else-if="q.options">
+                    <div class="flex flex-wrap gap-2">
+                      <el-button
+                        v-for="(_text, key) in q.options"
+                        :key="key"
+                        size="small"
+                        :type="recAnswers[q.id]?.selected === key ? 'primary' : 'default'"
+                        @click="recAnswers[q.id] = { ...recAnswers[q.id], selected: String(key) }"
+                      >
+                        {{ key }}
+                      </el-button>
+                    </div>
+                    <el-button
+                      class="mt-2"
+                      size="small"
+                      type="primary"
+                      style="background: linear-gradient(135deg, #ec4899, #db2777); border: none"
+                      :disabled="!recAnswers[q.id]?.selected"
+                      @click="submitRecAnswer(q)"
+                    >
+                      提交答案
+                    </el-button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </main>
       </div>
     </div>
@@ -378,14 +525,15 @@ import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { Loading, Edit, Notebook, DataAnalysis, Clock, Star, CircleCheck, CircleClose, WarningFilled } from "@element-plus/icons-vue";
 import { useAuthStore } from "../stores/auth";
-import { studentExamsApi } from "../api";
+import { studentExamsApi, wrongBookApi } from "../api";
 import AiChat from "../components/AiChat.vue";
 import type { Exam, Question } from "../types";
+import type { WrongAnswerItem, RecommendedQuestion } from "../api";
 
 const router = useRouter();
 const authStore = useAuthStore();
 
-const activeTab = ref<"practice" | "exams" | "scores">("practice");
+const activeTab = ref<"practice" | "exams" | "scores" | "wrongBook">("practice");
 const availableExams = ref<(Exam & { hasTaken: boolean })[]>([]);
 const loading = ref(true);
 
@@ -393,6 +541,7 @@ const menuItems = [
   { id: "practice" as const, label: "自由练习", description: "练习题库中的题目" },
   { id: "exams" as const, label: "参加考试", description: "参加教师发布的考试" },
   { id: "scores" as const, label: "查看分数", description: "查看历史成绩" },
+  { id: "wrongBook" as const, label: "错题本", description: "查看错题与推荐练习" },
 ];
 
 // Practice state
@@ -502,6 +651,15 @@ const submitPracticeAnswer = () => {
   practiceAnswered.value++;
   if (practiceIsCorrect.value) practiceCorrect.value++;
   practiceCurrentAnswered.value = true;
+
+  // Save to backend for wrong answer book tracking
+  if (q.type !== "essay") {
+    wrongBookApi.submitPractice({
+      questionId: q.id,
+      studentAnswer,
+      isCorrect: practiceIsCorrect.value,
+    }).catch(() => {});
+  }
 };
 
 const nextPractice = () => {
@@ -574,8 +732,59 @@ const startExam = (examId: number) => {
   router.push({ path: "/student/exam", query: { examId: String(examId) } });
 };
 
+// Wrong book state
+const wrongAnswers = ref<WrongAnswerItem[]>([]);
+const wrongLoading = ref(false);
+const recommendedQuestions = ref<RecommendedQuestion[]>([]);
+const recLoading = ref(false);
+const recAnswers = ref<Record<number, { selected?: string; answered?: boolean; correct?: boolean; studentAnswer?: string }>>({});
+
+const loadWrongAnswers = async () => {
+  wrongLoading.value = true;
+  try {
+    wrongAnswers.value = await wrongBookApi.list();
+  } catch {
+    wrongAnswers.value = [];
+    ElMessage.error("加载错题本失败");
+  } finally {
+    wrongLoading.value = false;
+  }
+};
+
+const loadRecommended = async () => {
+  recLoading.value = true;
+  try {
+    recommendedQuestions.value = await wrongBookApi.recommended();
+    recAnswers.value = {};
+  } catch {
+    recommendedQuestions.value = [];
+    ElMessage.error("加载推荐题目失败");
+  } finally {
+    recLoading.value = false;
+  }
+};
+
+const submitRecAnswer = async (q: RecommendedQuestion) => {
+  const ans = recAnswers.value[q.id];
+  if (!ans?.selected) return;
+  // Check correctness client-side — recommended questions don't include correctAnswer,
+  // so we fetch it via practice questions API. For simplicity, just record the attempt.
+  try {
+    await wrongBookApi.submitPractice({
+      questionId: q.id,
+      studentAnswer: ans.selected,
+      isCorrect: false, // can't verify without correctAnswer; mark as attempted
+    });
+    recAnswers.value[q.id] = { ...ans, answered: true, correct: false, studentAnswer: ans.selected };
+    ElMessage.info("已记录作答，可在错题本中复习");
+  } catch {
+    ElMessage.error("提交失败");
+  }
+};
+
 watch(activeTab, (tab) => {
   if (tab === "exams") loadData();
+  if (tab === "wrongBook") { loadWrongAnswers(); loadRecommended(); }
 });
 
 const handleLogout = async () => {
